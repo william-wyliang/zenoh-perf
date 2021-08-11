@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, CongestionControl, PeerId, Reliability, ResKey};
+use zenoh::net::protocol::core::{whatami, Channel, PeerId, Priority, Reliability, ResKey};
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::ZenohMessage;
@@ -170,8 +170,10 @@ async fn main() {
     };
 
     // Send reliable messages
-    let reliability = Reliability::Reliable;
-    let congestion_control = CongestionControl::Block;
+    let channel = Channel {
+        priority: Priority::Data,
+        reliability: Reliability::Reliable,
+    };
     let key = ResKey::RName("test".to_string());
     let info = None;
     let payload = ZBuf::from(vec![0u8; opt.payload]);
@@ -182,8 +184,7 @@ async fn main() {
     let message = ZenohMessage::make_data(
         key,
         payload,
-        reliability,
-        congestion_control,
+        channel,
         info,
         routing_context,
         reply_context,
