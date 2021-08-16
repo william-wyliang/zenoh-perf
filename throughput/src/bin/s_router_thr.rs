@@ -16,7 +16,7 @@ use rand::RngCore;
 use slab::Slab;
 use std::any::Any;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{whatami, PeerId};
 use zenoh::net::protocol::link::{Link, Locator};
@@ -28,7 +28,7 @@ use zenoh::net::protocol::session::{
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
 
-type Table = Arc<Mutex<Slab<Session>>>;
+type Table = Arc<RwLock<Slab<Session>>>;
 
 // Session Handler for the peer
 struct MySH {
@@ -38,14 +38,14 @@ struct MySH {
 impl MySH {
     fn new() -> Self {
         Self {
-            table: Arc::new(Mutex::new(Slab::new())),
+            table: Arc::new(RwLock::new(Slab::new())),
         }
     }
 }
 
 impl SessionHandler for MySH {
     fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler + Send + Sync>> {
-        let index = self.table.lock().unwrap().insert(session);
+        let index = self.table.write().unwrap().insert(session);
         Ok(Arc::new(MyMH::new(self.table.clone(), index)))
     }
 }
@@ -64,7 +64,7 @@ impl MyMH {
 
 impl SessionEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
-        for (i, e) in self.table.lock().unwrap().iter() {
+        for (i, e) in self.table.read().unwrap().iter() {
             if i != self.index {
                 let _ = e.handle_message(message.clone());
             }
