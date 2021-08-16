@@ -19,7 +19,7 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{
-    whatami, Channel, PeerId, Priority, Reliability, ResKey, WhatAmI,
+    whatami, Channel, CongestionControl, PeerId, Priority, Reliability, ResKey, WhatAmI,
 };
 use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::link::{Link, Locator};
@@ -54,10 +54,7 @@ impl MySHParallel {
 }
 
 impl SessionHandler for MySHParallel {
-    fn new_session(
-        &self,
-        _session: Session,
-    ) -> ZResult<Arc<dyn SessionEventHandler + Send + Sync>> {
+    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
         Ok(Arc::new(MyMHParallel::new(
             self.scenario.clone(),
             self.name.clone(),
@@ -135,10 +132,7 @@ impl MySHSequential {
 }
 
 impl SessionHandler for MySHSequential {
-    fn new_session(
-        &self,
-        _session: Session,
-    ) -> ZResult<Arc<dyn SessionEventHandler + Send + Sync>> {
+    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
         Ok(Arc::new(MyMHSequential::new(self.pending.clone())))
     }
 }
@@ -219,6 +213,7 @@ async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
             priority: Priority::Data,
             reliability: Reliability::Reliable,
         };
+        let congestion_control = CongestionControl::Block;
         let key = ResKey::RName("/test/ping".to_string());
         let info = None;
 
@@ -235,6 +230,7 @@ async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
             key,
             data,
             channel,
+            congestion_control,
             info,
             routing_context,
             reply_context,
@@ -290,6 +286,7 @@ async fn parallel(opt: Opt, whatami: WhatAmI, pid: PeerId) {
             priority: Priority::Data,
             reliability: Reliability::Reliable,
         };
+        let congestion_control = CongestionControl::Block;
         let key = ResKey::RName("/test/ping".to_string());
         let info = None;
 
@@ -306,6 +303,7 @@ async fn parallel(opt: Opt, whatami: WhatAmI, pid: PeerId) {
             key,
             data,
             channel,
+            congestion_control,
             info,
             routing_context,
             reply_context,

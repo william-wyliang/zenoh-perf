@@ -23,7 +23,6 @@ use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::protocol::session::{
     Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-    SessionManagerOptionalConfig,
 };
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
@@ -44,7 +43,7 @@ impl MySH {
 }
 
 impl SessionHandler for MySH {
-    fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler + Send + Sync>> {
+    fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
         let index = self.table.write().unwrap().insert(session);
         Ok(Arc::new(MyMH::new(self.table.clone(), index)))
     }
@@ -101,24 +100,22 @@ async fn main() {
     let pid = PeerId::new(1, pid);
 
     // Create the session manager
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami: whatami::PEER,
-        id: pid,
-        handler: Arc::new(MySH::new()),
-    };
-    let opt_config = match opt.config.as_ref() {
+    let bc = match opt.config.as_ref() {
         Some(f) => {
             let config = async_std::fs::read_to_string(f).await.unwrap();
             let properties = Properties::from(config);
             let int_props = IntKeyProperties::from(properties);
-            SessionManagerOptionalConfig::from_properties(&int_props)
+            SessionManagerConfig::builder()
+                .from_properties(&int_props)
                 .await
                 .unwrap()
         }
-        None => None,
+        None => SessionManagerConfig::builder()
+            .whatami(whatami::ROUTER)
+            .pid(pid),
     };
-    let manager = SessionManager::new(config, opt_config);
+    let config = bc.build(Arc::new(MySH::new()));
+    let manager = SessionManager::new(config);
 
     // Connect to publisher
     for l in opt.locator.iter() {

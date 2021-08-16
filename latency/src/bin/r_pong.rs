@@ -15,7 +15,8 @@ use async_std::future;
 use std::sync::{Arc, Mutex};
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{
-    Channel, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey, SubInfo, SubMode, ZInt,
+    Channel, CongestionControl, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey,
+    SubInfo, SubMode, ZInt,
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
@@ -70,6 +71,7 @@ impl Primitives for LatencyPrimitives {
         _reskey: &ResKey,
         payload: ZBuf,
         channel: Channel,
+        congestion_control: CongestionControl,
         data_info: Option<DataInfo>,
         routing_context: Option<RoutingContext>,
     ) {
@@ -78,6 +80,7 @@ impl Primitives for LatencyPrimitives {
             &reskey,
             payload,
             channel,
+            congestion_control,
             data_info,
             routing_context,
         );

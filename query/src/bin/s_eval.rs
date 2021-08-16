@@ -37,7 +37,7 @@ impl MySH {
 }
 
 impl SessionHandler for MySH {
-    fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler + Send + Sync>> {
+    fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
         Ok(Arc::new(MyMH::new(session, self.payload)))
     }
 }

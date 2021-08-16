@@ -18,13 +18,14 @@ use std::time::Duration;
 use std::time::Instant;
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{
-    Channel, PeerId, Priority, QueryConsolidation, QueryTarget, Reliability, ResKey, SubInfo,
-    SubMode, ZInt,
+    Channel, CongestionControl, PeerId, Priority, QueryConsolidation, QueryTarget, Reliability,
+    ResKey, SubInfo, SubMode, ZInt,
 };
 use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
 use zenoh::net::protocol::session::Primitives;
 use zenoh::net::runtime::Runtime;
+use zenoh::net::CongestionControl;
 use zenoh_util::properties::config::{
     ConfigProperties, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
 };
@@ -168,6 +169,7 @@ impl Primitives for LatencyPrimitivesSequential {
         _reskey: &ResKey,
         mut payload: ZBuf,
         _channel: Channel,
+        _congestion_control: CongestionControl,
         _data_info: Option<DataInfo>,
         _routing_context: Option<RoutingContext>,
     ) {

@@ -18,13 +18,15 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, Channel, PeerId, Priority, Reliability, ResKey};
+use zenoh::net::protocol::core::{
+    whatami, Channel, CongestionControl, PeerId, Priority, Reliability, ResKey,
+};
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::link::Locator;
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::protocol::session::{
     DummySessionEventHandler, Session, SessionEventHandler, SessionHandler, SessionManager,
-    SessionManagerConfig, SessionManagerOptionalConfig,
+    SessionManagerConfig,
 };
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
@@ -38,11 +40,8 @@ impl MySH {
 }
 
 impl SessionHandler for MySH {
-    fn new_session(
-        &self,
-        _session: Session,
-    ) -> ZResult<Arc<dyn SessionEventHandler + Send + Sync>> {
-        Ok(Arc::new(DummySessionEventHandler::new()))
+    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
+        Ok(Arc::new(DummySessionEventHandler::default()))
     }
 }
 
@@ -80,24 +79,20 @@ async fn main() {
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
 
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami,
-        id: pid,
-        handler: Arc::new(MySH::new()),
-    };
-    let opt_config = match opt.config.as_ref() {
+    let bc = match opt.config.as_ref() {
         Some(f) => {
             let config = async_std::fs::read_to_string(f).await.unwrap();
             let properties = Properties::from(config);
             let int_props = IntKeyProperties::from(properties);
-            SessionManagerOptionalConfig::from_properties(&int_props)
+            SessionManagerConfig::builder()
+                .from_properties(&int_props)
                 .await
                 .unwrap()
         }
-        None => None,
+        None => SessionManagerConfig::builder().whatami(whatami).pid(pid),
     };
-    let manager = SessionManager::new(config, opt_config);
+    let config = bc.build(Arc::new(MySH::new()));
+    let manager = SessionManager::new(config);
 
     // Connect to publisher
     let session = manager.open_session(&opt.locator).await.unwrap();
@@ -107,6 +102,7 @@ async fn main() {
         priority: Priority::Data,
         reliability: Reliability::Reliable,
     };
+    let congestion_control = CongestionControl::Block;
     let key = ResKey::RId(1);
     let info = None;
     let payload = ZBuf::from(vec![0u8; opt.payload]);
@@ -132,6 +128,7 @@ async fn main() {
                 key.clone(),
                 payload.clone(),
                 channel,
+                congestion_control,
                 info.clone(),
                 routing_context,
                 reply_context.clone(),
@@ -149,6 +146,7 @@ async fn main() {
                 key.clone(),
                 payload.clone(),
                 channel,
+                congestion_control,
                 info.clone(),
                 routing_context,
                 reply_context.clone(),
