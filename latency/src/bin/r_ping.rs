@@ -25,7 +25,6 @@ use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
 use zenoh::net::protocol::session::Primitives;
 use zenoh::net::runtime::Runtime;
-use zenoh::net::CongestionControl;
 use zenoh_util::properties::config::{
     ConfigProperties, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
 };
@@ -81,6 +80,7 @@ impl Primitives for LatencyPrimitivesParallel {
         _reskey: &ResKey,
         mut payload: ZBuf,
         _channel: Channel,
+        _congestion_control: CongestionControl,
         _data_info: Option<DataInfo>,
         _routing_context: Option<RoutingContext>,
     ) {
@@ -255,6 +255,7 @@ async fn parallel(opt: Opt, config: ConfigProperties) {
         priority: Priority::Data,
         reliability: Reliability::Reliable,
     };
+    let congestion_control = CongestionControl::Block;
     let payload = vec![0u8; opt.payload - 8];
     let mut count: u64 = 0;
     let reskey = ResKey::RName("/test/ping".to_string());
@@ -269,7 +270,7 @@ async fn parallel(opt: Opt, config: ConfigProperties) {
         // Insert the pending ping
         pending.lock().unwrap().insert(count, Instant::now());
 
-        tx_primitives.send_data(&reskey, data, channel, None, None);
+        tx_primitives.send_data(&reskey, data, channel, congestion_control, None, None);
 
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;
@@ -295,6 +296,7 @@ async fn single(opt: Opt, config: ConfigProperties) {
         priority: Priority::Data,
         reliability: Reliability::Reliable,
     };
+    let congestion_control = CongestionControl::Block;
     let payload = vec![0u8; opt.payload - 8];
     let mut count: u64 = 0;
     let reskey = ResKey::RName("/test/ping".to_string());
@@ -311,7 +313,7 @@ async fn single(opt: Opt, config: ConfigProperties) {
         pending.lock().unwrap().insert(count, barrier.clone());
 
         let now = Instant::now();
-        tx_primitives.send_data(&reskey, data, channel, None, None);
+        tx_primitives.send_data(&reskey, data, channel, congestion_control, None, None);
         barrier.wait();
         println!(
             "router,{},latency.sequential,{},{},{},{},{}",

@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use structopt::StructOpt;
-use zenoh::net::protocol::core::{Channel, Priority, Reliability, ResKey};
+use zenoh::net::protocol::core::{Channel, CongestionControl, Priority, Reliability, ResKey};
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::session::DummyPrimitives;
 use zenoh::net::protocol::session::Primitives;
@@ -81,6 +81,7 @@ async fn main() {
         priority: Priority::Data,
         reliability: Reliability::Reliable,
     };
+    let congestion_control = CongestionControl::Block;
     let payload = ZBuf::from(vec![0u8; opt.payload]);
     if opt.print {
         let count = Arc::new(AtomicUsize::new(0));
@@ -96,12 +97,26 @@ async fn main() {
         });
 
         loop {
-            primitives.send_data(&rid, payload.clone(), channel, None, None);
+            primitives.send_data(
+                &rid,
+                payload.clone(),
+                channel,
+                congestion_control,
+                None,
+                None,
+            );
             c_count.fetch_add(1, Ordering::Relaxed);
         }
     } else {
         loop {
-            primitives.send_data(&rid, payload.clone(), channel, None, None);
+            primitives.send_data(
+                &rid,
+                payload.clone(),
+                channel,
+                congestion_control,
+                None,
+                None,
+            );
         }
     }
 }

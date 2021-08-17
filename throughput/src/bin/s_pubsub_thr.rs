@@ -13,14 +13,13 @@
 //
 use async_std::sync::Arc;
 use async_std::task;
-use rand::RngCore;
 use std::any::Any;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{
-    whatami, Channel, CongestionControl, PeerId, Priority, Reliability, ResKey,
+    whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::link::{Link, Locator};
@@ -126,16 +125,7 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    // Initialize the Peer Id
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
-
-    let whatami = match opt.mode.as_str() {
-        "peer" => whatami::PEER,
-        "client" => whatami::CLIENT,
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
+    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
     let count = Arc::new(AtomicUsize::new(0));
     let bc = match opt.config.as_ref() {
@@ -148,9 +138,7 @@ async fn main() {
                 .await
                 .unwrap()
         }
-        None => SessionManagerConfig::builder()
-            .whatami(whatami::ROUTER)
-            .pid(pid),
+        None => SessionManagerConfig::builder().whatami(whatami),
     };
     let config = bc.build(Arc::new(MySH::new(
         opt.scenario,
@@ -175,7 +163,7 @@ async fn main() {
         priority: Priority::Data,
         reliability: Reliability::Reliable,
     };
-    let congestion_control: CongestionControl::Block;
+    let congestion_control = CongestionControl::Block;
     let key = ResKey::RName("test".to_string());
     let info = None;
     let payload = ZBuf::from(vec![0u8; opt.payload]);

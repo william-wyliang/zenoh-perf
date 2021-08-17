@@ -11,19 +11,20 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use rand::RngCore;
 use std::any::Any;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Instant;
 use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, PeerId, QueryConsolidation, QueryTarget, ResKey};
+use zenoh::net::protocol::core::{whatami, QueryConsolidation, QueryTarget, ResKey};
 use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
 use zenoh::net::protocol::session::{
     Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
 };
 use zenoh_util::core::ZResult;
+use zenoh_util::properties::{IntKeyProperties, Properties};
 
 type Pending = Arc<Mutex<HashMap<u64, (Instant, Arc<Barrier>)>>>;
 
@@ -122,6 +123,8 @@ struct Opt {
     name: String,
     #[structopt(short = "s", long = "scenario")]
     scenario: String,
+    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    config: Option<PathBuf>,
 }
 
 #[async_std::main]
@@ -132,29 +135,28 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    let whatami = match opt.mode.as_str() {
-        "peer" => whatami::PEER,
-        "client" => whatami::CLIENT,
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
-
-    // Initialize the Peer Id
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
+    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
     let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami,
-        id: pid,
-        handler: Arc::new(MySH::new(
-            opt.scenario.clone(),
-            opt.name.clone(),
-            pending.clone(),
-        )),
+
+    let bc = match opt.config.as_ref() {
+        Some(f) => {
+            let config = async_std::fs::read_to_string(f).await.unwrap();
+            let properties = Properties::from(config);
+            let int_props = IntKeyProperties::from(properties);
+            SessionManagerConfig::builder()
+                .from_properties(&int_props)
+                .await
+                .unwrap()
+        }
+        None => SessionManagerConfig::builder().whatami(whatami),
     };
-    let manager = SessionManager::new(config, None);
+    let config = bc.build(Arc::new(MySH::new(
+        opt.scenario.clone(),
+        opt.name.clone(),
+        pending.clone(),
+    )));
+    let manager = SessionManager::new(config);
 
     // Connect to publisher
     let session = manager.open_session(&opt.locator).await.unwrap();

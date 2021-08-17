@@ -13,10 +13,9 @@
 //
 use async_std::future;
 use async_std::sync::Arc;
-use rand::RngCore;
 use std::any::Any;
 use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, PeerId};
+use zenoh::net::protocol::core::whatami;
 use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::protocol::session::{
@@ -81,24 +80,12 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    let whatami = match opt.mode.as_str() {
-        "peer" => whatami::PEER,
-        "client" => whatami::CLIENT,
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
+    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
-    // Initialize the Peer Id
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
-
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami,
-        id: pid,
-        handler: Arc::new(MySH::new()),
-    };
-    let manager = SessionManager::new(config, None);
+    let config = SessionManagerConfig::builder()
+        .whatami(whatami)
+        .build(Arc::new(MySH::new()));
+    let manager = SessionManager::new(config);
 
     // Connect to the peer or listen
     if whatami == whatami::PEER {

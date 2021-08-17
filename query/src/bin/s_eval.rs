@@ -13,10 +13,12 @@
 //
 use async_std::future;
 use async_std::sync::Arc;
-use rand::RngCore;
 use std::any::Any;
+use std::path::PathBuf;
 use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, Channel, PeerId, Priority, Reliability, ResKey};
+use zenoh::net::protocol::core::{
+    whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
+};
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::{Query, ReplyContext, ZenohBody, ZenohMessage};
@@ -24,6 +26,7 @@ use zenoh::net::protocol::session::{
     Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
 };
 use zenoh_util::core::ZResult;
+use zenoh_util::properties::{IntKeyProperties, Properties};
 
 // Session Handler for the peer
 struct MySH {
@@ -63,6 +66,7 @@ impl SessionEventHandler for MyMH {
                     priority: Priority::Data,
                     reliability: Reliability::Reliable,
                 };
+                let congestion_control = CongestionControl::Block;
                 let key = ResKey::RName("/test/query".to_string());
                 let info = None;
                 let payload = ZBuf::from(vec![0u8; self.payload]);
@@ -74,6 +78,7 @@ impl SessionEventHandler for MyMH {
                     key,
                     payload,
                     channel,
+                    congestion_control,
                     info,
                     routing_context,
                     reply_context,
@@ -104,6 +109,8 @@ struct Opt {
     mode: String,
     #[structopt(short = "p", long = "payload")]
     payload: usize,
+    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    config: Option<PathBuf>,
 }
 
 #[async_std::main]
@@ -114,24 +121,22 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    let whatami = match opt.mode.as_str() {
-        "peer" => whatami::PEER,
-        "client" => whatami::CLIENT,
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
+    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
-    // Initialize the Peer Id
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
-
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami,
-        id: pid,
-        handler: Arc::new(MySH::new(opt.payload)),
+    let bc = match opt.config.as_ref() {
+        Some(f) => {
+            let config = async_std::fs::read_to_string(f).await.unwrap();
+            let properties = Properties::from(config);
+            let int_props = IntKeyProperties::from(properties);
+            SessionManagerConfig::builder()
+                .from_properties(&int_props)
+                .await
+                .unwrap()
+        }
+        None => SessionManagerConfig::builder().whatami(whatami),
     };
-    let manager = SessionManager::new(config, None);
+    let config = bc.build(Arc::new(MySH::new(opt.payload)));
+    let manager = SessionManager::new(config);
 
     // Connect to the peer or listen
     if whatami == whatami::PEER {

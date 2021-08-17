@@ -193,13 +193,11 @@ struct Opt {
 
 async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
     let pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>> = Arc::new(Mutex::new(HashMap::new()));
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami,
-        id: pid,
-        handler: Arc::new(MySHSequential::new(pending.clone())),
-    };
-    let manager = SessionManager::new(config, None);
+    let config = SessionManagerConfig::builder()
+        .pid(pid)
+        .whatami(whatami)
+        .build(Arc::new(MySHSequential::new(pending.clone())));
+    let manager = SessionManager::new(config);
 
     // Connect to publisher
     let session = manager.open_session(&opt.locator).await.unwrap();
@@ -261,18 +259,16 @@ async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
 
 async fn parallel(opt: Opt, whatami: WhatAmI, pid: PeerId) {
     let pending: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
-    let config = SessionManagerConfig {
-        version: 0,
-        whatami,
-        id: pid,
-        handler: Arc::new(MySHParallel::new(
+    let config = SessionManagerConfig::builder()
+        .pid(pid)
+        .whatami(whatami)
+        .build(Arc::new(MySHParallel::new(
             opt.scenario,
             opt.name,
             opt.interval,
             pending.clone(),
-        )),
-    };
-    let manager = SessionManager::new(config, None);
+        )));
+    let manager = SessionManager::new(config);
 
     // Connect to publisher
     let session = manager.open_session(&opt.locator).await.unwrap();
@@ -328,11 +324,7 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    let whatami = match opt.mode.as_str() {
-        "peer" => whatami::PEER,
-        "client" => whatami::CLIENT,
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
+    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
     // Initialize the Peer Id
     let mut pid = [0u8; PeerId::MAX_SIZE];

@@ -18,7 +18,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{
-    Channel, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey, SubInfo, SubMode, ZInt,
+    Channel, CongestionControl, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey,
+    SubInfo, SubMode, ZInt,
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
@@ -87,6 +88,7 @@ impl Primitives for ThroughputPrimitives {
         _reskey: &ResKey,
         _payload: ZBuf,
         _channel: Channel,
+        _congestion_control: CongestionControl,
         _data_info: Option<DataInfo>,
         _routing_context: Option<RoutingContext>,
     ) {

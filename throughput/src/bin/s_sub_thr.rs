@@ -133,11 +133,7 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    let whatami = match opt.mode.as_str() {
-        "peer" => whatami::PEER,
-        "client" => whatami::CLIENT,
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
+    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
     // Initialize the Peer Id
     let mut pid = [0u8; PeerId::MAX_SIZE];
