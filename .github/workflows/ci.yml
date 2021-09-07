@@ -37,7 +37,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Install latest nightly
+    - name: Install latest stable
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -50,14 +50,13 @@ jobs:
         command: fmt
         args: -- --check
 
+    - name: Cargo update
+      uses: actions-rs/cargo@v1
+      with:
+        command: update
+
     - name: Clippy
       uses: actions-rs/cargo@v1
       with:
         command: clippy
-        args: --all --examples -- -D warnings
-
-    - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --verbose --all-targets
+        args: --all-targets -- -D warnings
