@@ -15,14 +15,15 @@ use async_std::sync::Arc;
 use async_std::task;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use structopt::StructOpt;
+use zenoh::net::link::EndPoint;
 use zenoh::net::protocol::core::{
     whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
 };
-use zenoh::net::protocol::link::Locator;
 use zenoh::net::protocol::proto::ZenohMessage;
-use zenoh::net::protocol::session::{
-    DummySessionEventHandler, Session, SessionEventHandler, SessionHandler, SessionManager,
-    SessionManagerConfig,
+use zenoh::net::transport::{
+    DummyTransportPeerEventHandler, TransportEventHandler, TransportManager,
+    TransportManagerConfig, TransportMulticast, TransportMulticastEventHandler, TransportPeer,
+    TransportPeerEventHandler, TransportUnicast,
 };
 use zenoh_util::core::ZResult;
 
@@ -34,9 +35,20 @@ impl MySH {
     }
 }
 
-impl SessionHandler for MySH {
-    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
-        Ok(Arc::new(DummySessionEventHandler::default()))
+impl TransportEventHandler for MySH {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        _transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
+        Ok(Arc::new(DummyTransportPeerEventHandler::default()))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
@@ -44,7 +56,7 @@ impl SessionHandler for MySH {
 #[structopt(name = "z_ping")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Locator,
+    locator: EndPoint,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
@@ -63,13 +75,13 @@ async fn main() {
 
     let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
-    let config = SessionManagerConfig::builder()
+    let config = TransportManagerConfig::builder()
         .whatami(whatami)
         .build(Arc::new(MySH::new()));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to publisher
-    let session = manager.open_session(&opt.locator).await.unwrap();
+    let session = manager.open_transport(opt.locator).await.unwrap();
 
     let mut count: u64 = 0;
     loop {

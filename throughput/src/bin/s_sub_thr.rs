@@ -20,16 +20,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
+use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{whatami, PeerId};
-use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::ZenohMessage;
-use zenoh::net::protocol::session::{
-    Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-};
+use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
 
-// Session Handler for the peer
+// Transport Handler for the peer
 struct MySH {
     scenario: String,
     name: String,
@@ -50,8 +48,12 @@ impl MySH {
     }
 }
 
-impl SessionHandler for MySH {
-    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
+impl TransportEventHandler for MySH {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        _transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
         if !self.active.swap(true, Ordering::Acquire) {
             let count = self.counter.clone();
             let scenario = self.scenario.clone();
@@ -79,6 +81,13 @@ impl SessionHandler for MySH {
         }
         Ok(Arc::new(MyMH::new(self.counter.clone())))
     }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
+    }
 }
 
 // Message Handler for the peer
@@ -92,7 +101,7 @@ impl MyMH {
     }
 }
 
-impl SessionEventHandler for MyMH {
+impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, _message: ZenohMessage) -> ZResult<()> {
         self.counter.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -112,7 +121,7 @@ impl SessionEventHandler for MyMH {
 #[structopt(name = "s_sub_thr")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Locator,
+    locator: EndPoint,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
@@ -146,12 +155,12 @@ async fn main() {
             let config = async_std::fs::read_to_string(f).await.unwrap();
             let properties = Properties::from(config);
             let int_props = IntKeyProperties::from(properties);
-            SessionManagerConfig::builder()
-                .from_properties(&int_props)
+            TransportManagerConfig::builder()
+                .from_config(&int_props)
                 .await
                 .unwrap()
         }
-        None => SessionManagerConfig::builder()
+        None => TransportManagerConfig::builder()
             .whatami(whatami::ROUTER)
             .pid(pid),
     };
@@ -161,13 +170,13 @@ async fn main() {
         opt.payload,
         count,
     )));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     if whatami == whatami::PEER {
         // Connect to the peer or listen
-        manager.add_listener(&opt.locator).await.unwrap();
+        manager.add_listener(opt.locator).await.unwrap();
     } else {
-        let _s = manager.open_session(&opt.locator).await.unwrap();
+        let _s = manager.open_transport(opt.locator).await.unwrap();
     }
     // Stop forever
     future::pending::<()>().await;

@@ -18,18 +18,16 @@ use std::any::Any;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
+use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{whatami, PeerId};
-use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::ZenohMessage;
-use zenoh::net::protocol::session::{
-    Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-};
+use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
 
-type Table = Arc<RwLock<Slab<Session>>>;
+type Table = Arc<RwLock<Slab<TransportUnicast>>>;
 
-// Session Handler for the peer
+// Transport Handler for the peer
 struct MySH {
     table: Table,
 }
@@ -42,10 +40,21 @@ impl MySH {
     }
 }
 
-impl SessionHandler for MySH {
-    fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
-        let index = self.table.write().unwrap().insert(session);
+impl TransportEventHandler for MySH {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
+        let index = self.table.write().unwrap().insert(transport);
         Ok(Arc::new(MyMH::new(self.table.clone(), index)))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
@@ -61,7 +70,7 @@ impl MyMH {
     }
 }
 
-impl SessionEventHandler for MyMH {
+impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         for (i, e) in self.table.read().unwrap().iter() {
             if i != self.index {
@@ -84,7 +93,7 @@ impl SessionEventHandler for MyMH {
 #[structopt(name = "s_router_thr")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Vec<Locator>,
+    locator: Vec<EndPoint>,
     #[structopt(short = "c", long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
@@ -92,7 +101,7 @@ struct Opt {
 #[async_std::main]
 async fn main() {
     // Parse the args
-    let opt = Opt::from_args();
+    let mut opt = Opt::from_args();
 
     // Initialize the Peer Id
     let mut pid = [0u8; PeerId::MAX_SIZE];
@@ -105,20 +114,20 @@ async fn main() {
             let config = async_std::fs::read_to_string(f).await.unwrap();
             let properties = Properties::from(config);
             let int_props = IntKeyProperties::from(properties);
-            SessionManagerConfig::builder()
-                .from_properties(&int_props)
+            TransportManagerConfig::builder()
+                .from_config(&int_props)
                 .await
                 .unwrap()
         }
-        None => SessionManagerConfig::builder()
+        None => TransportManagerConfig::builder()
             .whatami(whatami::ROUTER)
             .pid(pid),
     };
     let config = bc.build(Arc::new(MySH::new()));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to publisher
-    for l in opt.locator.iter() {
+    for l in opt.locator.drain(..) {
         manager.add_listener(l).await.unwrap();
     }
     // Stop forever

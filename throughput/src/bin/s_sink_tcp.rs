@@ -22,7 +22,7 @@ use std::time::Duration;
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{whatami, PeerId};
 use zenoh::net::protocol::io::{WBuf, ZBuf, ZSlice};
-use zenoh::net::protocol::proto::{InitSyn, OpenSyn, SessionBody, SessionMessage};
+use zenoh::net::protocol::proto::{InitSyn, OpenSyn, TransportBody, TransportMessage};
 
 macro_rules! zsend {
     ($msg:expr, $stream:expr) => {{
@@ -31,7 +31,7 @@ macro_rules! zsend {
         // Reserve 16 bits to write the length
         assert!(wbuf.write_bytes(&[0u8, 0u8]));
         // Serialize the message
-        assert!(wbuf.write_session_message(&$msg));
+        assert!(wbuf.write_transport_message(&$msg));
         // Write the length on the first 16 bits
         let length: u16 = wbuf.len() as u16 - 2;
         let bits = wbuf.get_first_slice_mut(..2);
@@ -55,7 +55,7 @@ macro_rules! zrecv {
         let to_read = u16::from_le_bytes(length) as usize;
         $stream.read_exact(&mut $buffer[0..to_read]).await.unwrap();
         let mut zbuf = ZBuf::from(&$buffer[..]);
-        zbuf.read_session_message().unwrap()
+        zbuf.read_transport_message().unwrap()
     }};
 }
 
@@ -71,14 +71,14 @@ async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::
     // Read the InitSyn
     let message = zrecv!(stream, buffer);
     match &message.body {
-        SessionBody::InitSyn(InitSyn { is_qos, .. }) => {
+        TransportBody::InitSyn(InitSyn { is_qos, .. }) => {
             let whatami = my_whatami;
             let sn_resolution = None;
             let cookie = ZSlice::from(vec![0u8; 8]);
             let attachment = None;
-            let message = SessionMessage::make_init_ack(
+            let message = TransportMessage::make_init_ack(
                 whatami,
-                my_pid.clone(),
+                my_pid,
                 sn_resolution,
                 *is_qos,
                 cookie,
@@ -93,11 +93,11 @@ async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::
     // Read the OpenSyn
     let message = zrecv!(stream, buffer);
     match &message.body {
-        SessionBody::OpenSyn(OpenSyn {
+        TransportBody::OpenSyn(OpenSyn {
             lease, initial_sn, ..
         }) => {
             let attachment = None;
-            let message = SessionMessage::make_open_ack(*lease, *initial_sn, attachment);
+            let message = TransportMessage::make_open_ack(*lease, *initial_sn, attachment);
             // Send the OpenAck
             let _ = zsend!(message, stream).unwrap();
         }
@@ -122,7 +122,7 @@ async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::
     task::spawn(async move {
         loop {
             task::sleep(Duration::from_secs(1)).await;
-            let message = SessionMessage::make_keep_alive(None, None);
+            let message = TransportMessage::make_keep_alive(None, None);
             let _ = zsend!(message, c_stream);
         }
     });

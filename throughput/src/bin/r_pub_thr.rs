@@ -19,9 +19,9 @@ use std::time::Duration;
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{Channel, CongestionControl, Priority, Reliability, ResKey};
 use zenoh::net::protocol::io::ZBuf;
-use zenoh::net::protocol::session::DummyPrimitives;
-use zenoh::net::protocol::session::Primitives;
 use zenoh::net::runtime::Runtime;
+use zenoh::net::transport::DummyPrimitives;
+use zenoh::net::transport::Primitives;
 use zenoh_util::properties::config::{
     ConfigProperties, ZN_ADD_TIMESTAMP_KEY, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
 };

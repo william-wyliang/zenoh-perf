@@ -16,19 +16,17 @@ use async_std::sync::Arc;
 use std::any::Any;
 use std::path::PathBuf;
 use structopt::StructOpt;
+use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{
     whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
 };
 use zenoh::net::protocol::io::ZBuf;
-use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::{Query, ReplyContext, ZenohBody, ZenohMessage};
-use zenoh::net::protocol::session::{
-    Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-};
+use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
 
-// Session Handler for the peer
+// Transport Handler for the peer
 struct MySH {
     payload: usize,
 }
@@ -39,25 +37,36 @@ impl MySH {
     }
 }
 
-impl SessionHandler for MySH {
-    fn new_session(&self, session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
-        Ok(Arc::new(MyMH::new(session, self.payload)))
+impl TransportEventHandler for MySH {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
+        Ok(Arc::new(MyMH::new(transport, self.payload)))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
 // Message Handler for the peer
 struct MyMH {
-    session: Session,
+    session: TransportUnicast,
     payload: usize,
 }
 
 impl MyMH {
-    fn new(session: Session, payload: usize) -> Self {
+    fn new(session: TransportUnicast, payload: usize) -> Self {
         Self { session, payload }
     }
 }
 
-impl SessionEventHandler for MyMH {
+impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
             ZenohBody::Query(Query { qid, .. }) => {
@@ -104,7 +113,7 @@ impl SessionEventHandler for MyMH {
 #[structopt(name = "s_eval")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Locator,
+    locator: EndPoint,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
@@ -128,21 +137,21 @@ async fn main() {
             let config = async_std::fs::read_to_string(f).await.unwrap();
             let properties = Properties::from(config);
             let int_props = IntKeyProperties::from(properties);
-            SessionManagerConfig::builder()
-                .from_properties(&int_props)
+            TransportManagerConfig::builder()
+                .from_config(&int_props)
                 .await
                 .unwrap()
         }
-        None => SessionManagerConfig::builder().whatami(whatami),
+        None => TransportManagerConfig::builder().whatami(whatami),
     };
     let config = bc.build(Arc::new(MySH::new(opt.payload)));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to the peer or listen
     if whatami == whatami::PEER {
-        manager.add_listener(&opt.locator).await.unwrap();
+        manager.add_listener(opt.locator).await.unwrap();
     } else {
-        let _session = manager.open_session(&opt.locator).await.unwrap();
+        let _session = manager.open_transport(opt.locator).await.unwrap();
     }
 
     // Stop forever

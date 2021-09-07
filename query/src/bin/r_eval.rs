@@ -21,10 +21,10 @@ use zenoh::net::protocol::core::{
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
-use zenoh::net::protocol::session::Primitives;
 use zenoh::net::queryable::ALL_KINDS;
 use zenoh::net::routing::face::Face;
 use zenoh::net::runtime::Runtime;
+use zenoh::net::transport::Primitives;
 use zenoh_util::properties::config::{
     ConfigProperties, ZN_LISTENER_KEY, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
 };
@@ -93,7 +93,7 @@ impl Primitives for EvalPrimitives {
     ) {
         let reskey = reskey.clone();
         let source_kind = 0;
-        let pid = self.pid.clone();
+        let pid = self.pid;
         let info = None;
         let payload = ZBuf::from(vec![0u8; self.payload]);
         let tx_primitives = self.tx.lock().unwrap().as_ref().unwrap().clone();

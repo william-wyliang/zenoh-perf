@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{
-    FramePayload, SessionBody, SessionMessage, ZenohBody, ZenohMessage,
+    FramePayload, TransportBody, TransportMessage, ZenohBody, ZenohMessage,
 };
 
 #[derive(Debug, StructOpt)]
@@ -62,8 +62,8 @@ pub struct PcapLayers {
     pub tcp_payload: Option<Vec<String>>,
 }
 
-fn read_session_messages(mut data: &[u8]) -> Vec<SessionMessage> {
-    let mut messages: Vec<SessionMessage> = Vec::with_capacity(1);
+fn read_transport_messages(mut data: &[u8]) -> Vec<TransportMessage> {
+    let mut messages: Vec<TransportMessage> = Vec::with_capacity(1);
     let mut length_bytes = [0u8; 2];
     while data.read_exact(&mut length_bytes).is_ok() {
         let to_read = u16::from_le_bytes(length_bytes) as usize;
@@ -74,7 +74,7 @@ fn read_session_messages(mut data: &[u8]) -> Vec<SessionMessage> {
         let mut zbuf = ZBuf::from(buffer);
 
         while zbuf.can_read() {
-            if let Some(msg) = zbuf.read_session_message() {
+            if let Some(msg) = zbuf.read_transport_message() {
                 messages.push(msg)
             }
         }
@@ -83,10 +83,10 @@ fn read_session_messages(mut data: &[u8]) -> Vec<SessionMessage> {
     messages
 }
 
-fn read_zenoh_messages(data: Vec<SessionMessage>) -> Vec<ZenohMessage> {
+fn read_zenoh_messages(data: Vec<TransportMessage>) -> Vec<ZenohMessage> {
     let mut messages = vec![];
     for m in data.iter() {
-        if let SessionBody::Frame(f) = &m.body {
+        if let TransportBody::Frame(f) = &m.body {
             if let FramePayload::Messages { messages: msgs } = &f.payload {
                 messages.extend_from_slice(msgs);
             }
@@ -121,11 +121,11 @@ async fn main() {
 
     println!("Total Size of Zenoh messages: {} bytes", zenoh_data.len());
 
-    let session_messages = read_session_messages(zenoh_data.as_slice());
+    let transport_messages = read_transport_messages(zenoh_data.as_slice());
 
-    println!("Total SessionMessages: {}", session_messages.len());
+    println!("Total TransportMessages: {}", transport_messages.len());
 
-    let zenoh_messages = read_zenoh_messages(session_messages);
+    let zenoh_messages = read_zenoh_messages(transport_messages);
 
     println!("Total Zenoh Messages: {}", zenoh_messages.len());
 

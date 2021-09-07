@@ -16,15 +16,13 @@ use async_std::sync::Arc;
 use std::any::Any;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use structopt::StructOpt;
+use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::whatami;
-use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
-use zenoh::net::protocol::session::{
-    Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-};
+use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
 
-// Session Handler for the peer
+// Transport Handler for the peer
 struct MySH;
 
 impl MySH {
@@ -33,9 +31,20 @@ impl MySH {
     }
 }
 
-impl SessionHandler for MySH {
-    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
+impl TransportEventHandler for MySH {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        _transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
         Ok(Arc::new(MyMH::new()))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
@@ -48,7 +57,7 @@ impl MyMH {
     }
 }
 
-impl SessionEventHandler for MyMH {
+impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
             ZenohBody::Data(Data { mut payload, .. }) => {
@@ -87,7 +96,7 @@ impl SessionEventHandler for MyMH {
 #[structopt(name = "s_sub_thr")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Locator,
+    locator: EndPoint,
     #[structopt(short = "m", long = "mode")]
     mode: String,
 }
@@ -102,16 +111,16 @@ async fn main() {
 
     let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
-    let config = SessionManagerConfig::builder()
+    let config = TransportManagerConfig::builder()
         .whatami(whatami)
         .build(Arc::new(MySH::new()));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to the peer or listen
     if whatami == whatami::PEER {
-        manager.add_listener(&opt.locator).await.unwrap();
+        manager.add_listener(opt.locator).await.unwrap();
     } else {
-        let _session = manager.open_session(&opt.locator).await.unwrap();
+        let _session = manager.open_transport(opt.locator).await.unwrap();
     }
 
     // Stop forever

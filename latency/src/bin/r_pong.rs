@@ -20,7 +20,7 @@ use zenoh::net::protocol::core::{
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
-use zenoh::net::protocol::session::Primitives;
+use zenoh::net::transport::Primitives;
 use zenoh::net::routing::face::Face;
 use zenoh::net::runtime::Runtime;
 use zenoh_util::properties::config::{

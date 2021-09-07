@@ -18,18 +18,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
+use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{
     whatami, Channel, CongestionControl, PeerId, Priority, Reliability, ResKey, WhatAmI,
 };
 use zenoh::net::protocol::io::{WBuf, ZBuf};
-use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
-use zenoh::net::protocol::session::{
-    Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-};
+use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
 
-// Session Handler for the non-blocking locator
+// Transport Handler for the non-blocking locator
 struct MySHParallel {
     scenario: String,
     name: String,
@@ -53,14 +51,25 @@ impl MySHParallel {
     }
 }
 
-impl SessionHandler for MySHParallel {
-    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
+impl TransportEventHandler for MySHParallel {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        _transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
         Ok(Arc::new(MyMHParallel::new(
             self.scenario.clone(),
             self.name.clone(),
             self.interval,
             self.pending.clone(),
         )))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
@@ -88,7 +97,7 @@ impl MyMHParallel {
     }
 }
 
-impl SessionEventHandler for MyMHParallel {
+impl TransportPeerEventHandler for MyMHParallel {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
             ZenohBody::Data(Data { mut payload, .. }) => {
@@ -120,7 +129,7 @@ impl SessionEventHandler for MyMHParallel {
     }
 }
 
-// Session Handler for the blocking locator
+// Transport Handler for the blocking locator
 struct MySHSequential {
     pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>>,
 }
@@ -131,9 +140,20 @@ impl MySHSequential {
     }
 }
 
-impl SessionHandler for MySHSequential {
-    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
+impl TransportEventHandler for MySHSequential {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        _transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
         Ok(Arc::new(MyMHSequential::new(self.pending.clone())))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
@@ -148,7 +168,7 @@ impl MyMHSequential {
     }
 }
 
-impl SessionEventHandler for MyMHSequential {
+impl TransportPeerEventHandler for MyMHSequential {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
             ZenohBody::Data(Data { mut payload, .. }) => {
@@ -176,7 +196,7 @@ impl SessionEventHandler for MyMHSequential {
 #[structopt(name = "s_sub_thr")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Locator,
+    locator: EndPoint,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
@@ -193,14 +213,14 @@ struct Opt {
 
 async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
     let pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>> = Arc::new(Mutex::new(HashMap::new()));
-    let config = SessionManagerConfig::builder()
+    let config = TransportManagerConfig::builder()
         .pid(pid)
         .whatami(whatami)
         .build(Arc::new(MySHSequential::new(pending.clone())));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to publisher
-    let session = manager.open_session(&opt.locator).await.unwrap();
+    let session = manager.open_transport(opt.locator).await.unwrap();
 
     let sleep = Duration::from_secs_f64(opt.interval);
     let payload = vec![0u8; opt.payload - 8];
@@ -259,7 +279,7 @@ async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
 
 async fn parallel(opt: Opt, whatami: WhatAmI, pid: PeerId) {
     let pending: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
-    let config = SessionManagerConfig::builder()
+    let config = TransportManagerConfig::builder()
         .pid(pid)
         .whatami(whatami)
         .build(Arc::new(MySHParallel::new(
@@ -268,10 +288,10 @@ async fn parallel(opt: Opt, whatami: WhatAmI, pid: PeerId) {
             opt.interval,
             pending.clone(),
         )));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to publisher
-    let session = manager.open_session(&opt.locator).await.unwrap();
+    let session = manager.open_transport(opt.locator).await.unwrap();
 
     let sleep = Duration::from_secs_f64(opt.interval);
     let payload = vec![0u8; opt.payload - 8];

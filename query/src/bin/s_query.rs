@@ -17,18 +17,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Instant;
 use structopt::StructOpt;
+use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{whatami, QueryConsolidation, QueryTarget, ResKey};
-use zenoh::net::protocol::link::{Link, Locator};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
-use zenoh::net::protocol::session::{
-    Session, SessionEventHandler, SessionHandler, SessionManager, SessionManagerConfig,
-};
+use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
 use zenoh_util::properties::{IntKeyProperties, Properties};
 
 type Pending = Arc<Mutex<HashMap<u64, (Instant, Arc<Barrier>)>>>;
 
-// Session Handler for the blocking locator
+// Transport Handler for the blocking locator
 struct MySH {
     scenario: String,
     name: String,
@@ -45,13 +43,24 @@ impl MySH {
     }
 }
 
-impl SessionHandler for MySH {
-    fn new_session(&self, _session: Session) -> ZResult<Arc<dyn SessionEventHandler>> {
+impl TransportEventHandler for MySH {
+    fn new_unicast(
+        &self,
+        _peer: TransportPeer,
+        _transport: TransportUnicast,
+    ) -> ZResult<Arc<dyn TransportPeerEventHandler>> {
         Ok(Arc::new(MyMH::new(
             self.scenario.clone(),
             self.name.clone(),
             self.pending.clone(),
         )))
+    }
+
+    fn new_multicast(
+        &self,
+        _transport: TransportMulticast,
+    ) -> ZResult<Arc<dyn TransportMulticastEventHandler>> {
+        panic!();
     }
 }
 
@@ -72,7 +81,7 @@ impl MyMH {
     }
 }
 
-impl SessionEventHandler for MyMH {
+impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
             ZenohBody::Data(Data {
@@ -116,7 +125,7 @@ impl SessionEventHandler for MyMH {
 #[structopt(name = "s_query")]
 struct Opt {
     #[structopt(short = "l", long = "locator")]
-    locator: Locator,
+    locator: EndPoint,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "n", long = "name")]
@@ -144,22 +153,22 @@ async fn main() {
             let config = async_std::fs::read_to_string(f).await.unwrap();
             let properties = Properties::from(config);
             let int_props = IntKeyProperties::from(properties);
-            SessionManagerConfig::builder()
-                .from_properties(&int_props)
+            TransportManagerConfig::builder()
+                .from_config(&int_props)
                 .await
                 .unwrap()
         }
-        None => SessionManagerConfig::builder().whatami(whatami),
+        None => TransportManagerConfig::builder().whatami(whatami),
     };
     let config = bc.build(Arc::new(MySH::new(
         opt.scenario.clone(),
         opt.name.clone(),
         pending.clone(),
     )));
-    let manager = SessionManager::new(config);
+    let manager = TransportManager::new(config);
 
     // Connect to publisher
-    let session = manager.open_session(&opt.locator).await.unwrap();
+    let session = manager.open_transport(opt.locator).await.unwrap();
     let barrier = Arc::new(Barrier::new(2));
     let mut count: u64 = 0;
     loop {

@@ -20,14 +20,14 @@ use std::time::Duration;
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{whatami, PeerId};
 use zenoh::net::protocol::io::{WBuf, ZBuf, ZSlice};
-use zenoh::net::protocol::proto::{InitSyn, OpenSyn, SessionBody, SessionMessage};
+use zenoh::net::protocol::proto::{InitSyn, OpenSyn, TransportBody, TransportMessage};
 
 macro_rules! zsend {
     ($msg:expr, $socket:expr, $addr:expr) => {{
         // Create the buffer for serializing the message
         let mut wbuf = WBuf::new(32, false);
         // Serialize the message
-        assert!(wbuf.write_session_message(&$msg));
+        assert!(wbuf.write_transport_message(&$msg));
         let mut bytes = vec![0u8; wbuf.len()];
         wbuf.copy_into_slice(&mut bytes[..]);
         // Send the message on the link
@@ -41,7 +41,7 @@ macro_rules! zrecv {
     ($socket:expr, $buffer:expr) => {{
         let (n, addr) = $socket.recv_from(&mut $buffer).await.unwrap();
         let mut zbuf = ZBuf::from(&$buffer[..n]);
-        (zbuf.read_session_message().unwrap(), addr)
+        (zbuf.read_transport_message().unwrap(), addr)
     }};
 }
 
@@ -57,14 +57,14 @@ async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error:
     // Read the InitSyn
     let (message, addr) = zrecv!(socket, buffer);
     match &message.body {
-        SessionBody::InitSyn(InitSyn { is_qos, .. }) => {
+        TransportBody::InitSyn(InitSyn { is_qos, .. }) => {
             let whatami = my_whatami;
             let sn_resolution = None;
             let cookie = ZSlice::from(vec![0u8; 8]);
             let attachment = None;
-            let message = SessionMessage::make_init_ack(
+            let message = TransportMessage::make_init_ack(
                 whatami,
-                my_pid.clone(),
+                my_pid,
                 sn_resolution,
                 *is_qos,
                 cookie,
@@ -82,11 +82,11 @@ async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error:
         panic!("Received data from {}, expected from {}", a, addr);
     }
     match &message.body {
-        SessionBody::OpenSyn(OpenSyn {
+        TransportBody::OpenSyn(OpenSyn {
             lease, initial_sn, ..
         }) => {
             let attachment = None;
-            let message = SessionMessage::make_open_ack(*lease, *initial_sn, attachment);
+            let message = TransportMessage::make_open_ack(*lease, *initial_sn, attachment);
             // Send the OpenAck
             let _ = zsend!(message, socket, addr).unwrap();
         }
@@ -112,7 +112,7 @@ async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error:
     task::spawn(async move {
         loop {
             task::sleep(Duration::from_secs(1)).await;
-            let message = SessionMessage::make_keep_alive(None, None);
+            let message = TransportMessage::make_keep_alive(None, None);
             let _ = zsend!(message, c_socket, c_addr).unwrap();
         }
     });
