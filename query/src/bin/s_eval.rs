@@ -118,7 +118,7 @@ struct Opt {
     mode: String,
     #[structopt(short = "p", long = "payload")]
     payload: usize,
-    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 

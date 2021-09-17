@@ -111,10 +111,10 @@ impl TransportPeerEventHandler for MyMH {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "s_pubsub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "e", long = "peer")]
-    peer: EndPoint,
+    #[structopt(short = "l", long = "listen")]
+    listen: Vec<EndPoint>,
+    #[structopt(short = "c", long = "connect")]
+    connect: Vec<EndPoint>,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
@@ -125,7 +125,7 @@ struct Opt {
     scenario: String,
     #[structopt(short = "t", long = "print")]
     print: bool,
-    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -161,14 +161,20 @@ async fn main() {
     let manager = TransportManager::new(config);
 
     // Connect to publisher
-    let _ = manager.add_listener(opt.locator).await.unwrap();
+    for e in opt.listen.iter() {
+        let _ = manager.add_listener(e.clone()).await.unwrap();
+    }
 
-    let session = loop {
-        match manager.open_transport(opt.peer.clone()).await {
-            Ok(s) => break s,
-            Err(_) => task::sleep(Duration::from_secs(1)).await,
-        }
-    };
+    let mut transports: Vec<TransportUnicast> = vec![];
+    for e in opt.connect.iter() {
+        let t = loop {
+            match manager.open_transport_unicast(e.clone()).await {
+                Ok(t) => break t,
+                Err(_) => task::sleep(Duration::from_secs(1)).await,
+            }
+        };
+        transports.push(t);
+    }
 
     // Send reliable messages
     let channel = Channel {
@@ -183,43 +189,34 @@ async fn main() {
     let routing_context = None;
     let attachment = None;
 
-    let message = ZenohMessage::make_data(
-        key,
-        payload,
-        channel,
-        congestion_control,
-        info,
-        routing_context,
-        reply_context,
-        attachment,
-    );
-
+    let count = Arc::new(AtomicUsize::new(0));
     if opt.print {
-        let count = Arc::new(AtomicUsize::new(0));
         let c_count = count.clone();
         task::spawn(async move {
             loop {
                 task::sleep(Duration::from_secs(1)).await;
-                let c = count.swap(0, Ordering::Relaxed);
+                let c = c_count.swap(0, Ordering::Relaxed);
                 if c > 0 {
                     println!("{} msg/s", c);
                 }
             }
         });
+    }
 
-        loop {
-            let res = session.handle_message(message.clone());
-            if res.is_err() {
-                break;
-            }
-            c_count.fetch_add(1, Ordering::Relaxed);
+    loop {
+        for t in transports.iter() {
+            let message = ZenohMessage::make_data(
+                key.clone(),
+                payload.clone(),
+                channel,
+                congestion_control,
+                info.clone(),
+                routing_context,
+                reply_context.clone(),
+                attachment.clone(),
+            );
+            let _ = t.handle_message(message).unwrap();
         }
-    } else {
-        loop {
-            let res = session.handle_message(message.clone());
-            if res.is_err() {
-                break;
-            }
-        }
+        count.fetch_add(1, Ordering::Relaxed);
     }
 }

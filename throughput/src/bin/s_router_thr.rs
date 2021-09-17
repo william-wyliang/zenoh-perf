@@ -92,16 +92,18 @@ impl TransportPeerEventHandler for MyMH {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "s_router_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: Vec<EndPoint>,
-    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    #[structopt(short = "l", long = "listen")]
+    listen: Vec<EndPoint>,
+    #[structopt(short = "c", long = "connect")]
+    connect: Vec<EndPoint>,
+    #[structopt(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
 #[async_std::main]
 async fn main() {
     // Parse the args
-    let mut opt = Opt::from_args();
+    let opt = Opt::from_args();
 
     // Initialize the Peer Id
     let mut pid = [0u8; PeerId::MAX_SIZE];
@@ -126,9 +128,13 @@ async fn main() {
     let config = bc.build(Arc::new(MySH::new()));
     let manager = TransportManager::new(config);
 
-    // Connect to publisher
-    for l in opt.locator.drain(..) {
-        manager.add_listener(l).await.unwrap();
+    // Create listeners
+    for l in opt.listen.iter() {
+        manager.add_listener(l.clone()).await.unwrap();
+    }
+    // Connect to other routers
+    for l in opt.connect.iter() {
+        let _t = manager.open_transport_unicast(l.clone()).await.unwrap();
     }
     // Stop forever
     future::pending::<()>().await;

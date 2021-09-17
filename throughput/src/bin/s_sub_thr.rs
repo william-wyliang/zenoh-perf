@@ -120,8 +120,8 @@ impl TransportPeerEventHandler for MyMH {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "s_sub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
+    #[structopt(short = "e", long = "endpoint")]
+    endpoint: Vec<EndPoint>,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
@@ -130,7 +130,7 @@ struct Opt {
     name: String,
     #[structopt(short = "s", long = "scenario")]
     scenario: String,
-    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -173,10 +173,13 @@ async fn main() {
     let manager = TransportManager::new(config);
 
     if whatami == whatami::PEER {
-        // Connect to the peer or listen
-        manager.add_listener(opt.locator).await.unwrap();
+        for e in opt.endpoint.iter() {
+            manager.add_listener(e.clone()).await.unwrap();
+        }
     } else {
-        let _s = manager.open_transport(opt.locator).await.unwrap();
+        for e in opt.endpoint.iter() {
+            let _t = manager.open_transport_unicast(e.clone()).await.unwrap();
+        }
     }
     // Stop forever
     future::pending::<()>().await;

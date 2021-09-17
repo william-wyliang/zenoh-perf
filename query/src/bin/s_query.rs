@@ -132,7 +132,7 @@ struct Opt {
     name: String,
     #[structopt(short = "s", long = "scenario")]
     scenario: String,
-    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 

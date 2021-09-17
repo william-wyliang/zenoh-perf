@@ -59,15 +59,15 @@ impl TransportEventHandler for MySH {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "s_pub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
+    #[structopt(short = "c", long = "connect")]
+    connect: Vec<EndPoint>,
     #[structopt(short = "m", long = "mode")]
     mode: String,
     #[structopt(short = "p", long = "payload")]
     payload: usize,
     #[structopt(short = "t", long = "print")]
     print: bool,
-    #[structopt(short = "c", long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -97,7 +97,11 @@ async fn main() {
     let manager = TransportManager::new(config);
 
     // Connect to publisher
-    let session = manager.open_transport(opt.locator).await.unwrap();
+    let mut transports: Vec<TransportUnicast> = vec![];
+    for e in opt.connect.iter() {
+        let t = manager.open_transport_unicast(e.clone()).await.unwrap();
+        transports.push(t);
+    }
 
     // Send reliable messages
     let channel = Channel {
@@ -112,20 +116,22 @@ async fn main() {
     let routing_context = None;
     let attachment = None;
 
+    let count = Arc::new(AtomicUsize::new(0));
     if opt.print {
-        let count = Arc::new(AtomicUsize::new(0));
         let c_count = count.clone();
         task::spawn(async move {
             loop {
                 task::sleep(Duration::from_secs(1)).await;
-                let c = count.swap(0, Ordering::Relaxed);
+                let c = c_count.swap(0, Ordering::Relaxed);
                 if c > 0 {
                     println!("{} msg/s", c);
                 }
             }
         });
+    }
 
-        loop {
+    loop {
+        for t in transports.iter() {
             let message = ZenohMessage::make_data(
                 key.clone(),
                 payload.clone(),
@@ -136,28 +142,8 @@ async fn main() {
                 reply_context.clone(),
                 attachment.clone(),
             );
-            let res = session.handle_message(message);
-            if res.is_err() {
-                break;
-            }
-            c_count.fetch_add(1, Ordering::Relaxed);
+            let _ = t.handle_message(message).unwrap();
         }
-    } else {
-        loop {
-            let message = ZenohMessage::make_data(
-                key.clone(),
-                payload.clone(),
-                channel,
-                congestion_control,
-                info.clone(),
-                routing_context,
-                reply_context.clone(),
-                attachment.clone(),
-            );
-            let res = session.handle_message(message);
-            if res.is_err() {
-                break;
-            }
-        }
+        count.fetch_add(1, Ordering::Relaxed);
     }
 }
