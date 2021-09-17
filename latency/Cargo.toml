@@ -43,16 +43,16 @@ zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master",
 zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
 
 [[bin]]
-name = "s_pub_delay"
+name = "t_pub_delay"
 
 [[bin]]
-name = "s_sub_delay"
+name = "t_sub_delay"
 
 [[bin]]
-name = "s_ping"
+name = "t_ping"
 
 [[bin]]
-name = "s_pong"
+name = "t_pong"
 
 [[bin]]
 name = "r_ping"

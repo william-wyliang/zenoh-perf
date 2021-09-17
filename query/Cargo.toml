@@ -43,13 +43,13 @@ zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master",
 zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
 
 [[bin]]
-name = "s_eval"
+name = "t_eval"
 
 [[bin]]
-name = "s_query"
+name = "t_query"
 
 [[bin]]
-name = "s_query_thr"
+name = "t_query_thr"
 
 [[bin]]
 name = "r_query"

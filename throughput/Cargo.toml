@@ -43,22 +43,22 @@ zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master",
 zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
 
 [[bin]]
-name = "s_pub_thr"
+name = "t_pub_thr"
 
 [[bin]]
-name = "s_sub_thr"
+name = "t_sub_thr"
 
 [[bin]]
-name = "s_pubsub_thr"
+name = "t_pubsub_thr"
 
 [[bin]]
-name = "s_router_thr"
+name = "t_router_thr"
 
 [[bin]]
-name = "s_sink_tcp"
+name = "t_sink_tcp"
 
 [[bin]]
-name = "s_sink_udp"
+name = "t_sink_udp"
 
 [[bin]]
 name = "r_pub_thr"
