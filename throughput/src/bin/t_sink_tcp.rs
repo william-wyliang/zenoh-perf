@@ -15,7 +15,6 @@ use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::sync::Arc;
 use async_std::task;
-use rand::RngCore;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -61,9 +60,7 @@ macro_rules! zrecv {
 
 async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     let my_whatami = whatami::ROUTER;
-    let mut my_pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut my_pid);
-    let my_pid = PeerId::new(1, my_pid);
+    let my_pid = PeerId::rand();
 
     // Create the reading buffer
     let mut buffer = vec![0u8; 16_000_000];

@@ -12,14 +12,13 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::future;
-use rand::RngCore;
 use slab::Slab;
 use std::any::Any;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
 use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::{whatami, PeerId};
+use zenoh::net::protocol::core::whatami;
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::transport::*;
 use zenoh_util::core::ZResult;
@@ -105,11 +104,6 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    // Initialize the Peer Id
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
-
     // Create the session manager
     let bc = match opt.config.as_ref() {
         Some(f) => {
@@ -121,9 +115,7 @@ async fn main() {
                 .await
                 .unwrap()
         }
-        None => TransportManagerConfig::builder()
-            .whatami(whatami::ROUTER)
-            .pid(pid),
+        None => TransportManagerConfig::builder().whatami(whatami::ROUTER),
     };
     let config = bc.build(Arc::new(MySH::new()));
     let manager = TransportManager::new(config);

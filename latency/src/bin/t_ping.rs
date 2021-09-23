@@ -12,7 +12,6 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::task;
-use rand::RngCore;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Barrier, Mutex};
@@ -20,7 +19,7 @@ use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{
-    whatami, Channel, CongestionControl, PeerId, Priority, Reliability, ResKey, WhatAmI,
+    whatami, Channel, CongestionControl, Priority, Reliability, ResKey, WhatAmI,
 };
 use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
@@ -211,10 +210,9 @@ struct Opt {
     parallel: bool,
 }
 
-async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
+async fn single(opt: Opt, whatami: WhatAmI) {
     let pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>> = Arc::new(Mutex::new(HashMap::new()));
     let config = TransportManagerConfig::builder()
-        .pid(pid)
         .whatami(whatami)
         .build(Arc::new(MySHSequential::new(pending.clone())));
     let manager = TransportManager::new(config);
@@ -277,10 +275,9 @@ async fn single(opt: Opt, whatami: WhatAmI, pid: PeerId) {
     }
 }
 
-async fn parallel(opt: Opt, whatami: WhatAmI, pid: PeerId) {
+async fn parallel(opt: Opt, whatami: WhatAmI) {
     let pending: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
     let config = TransportManagerConfig::builder()
-        .pid(pid)
         .whatami(whatami)
         .build(Arc::new(MySHParallel::new(
             opt.scenario,
@@ -346,14 +343,9 @@ async fn main() {
 
     let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
-    // Initialize the Peer Id
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
-
     if opt.parallel {
-        parallel(opt, whatami, pid).await;
+        parallel(opt, whatami).await;
     } else {
-        single(opt, whatami, pid).await;
+        single(opt, whatami).await;
     }
 }

@@ -13,7 +13,6 @@
 //
 use async_std::future;
 use async_std::task;
-use rand::RngCore;
 use std::sync::{Arc, Mutex};
 use structopt::StructOpt;
 use zenoh::net::protocol::core::{
@@ -36,9 +35,9 @@ struct EvalPrimitives {
 }
 
 impl EvalPrimitives {
-    fn new(pid: PeerId, payload: usize) -> EvalPrimitives {
+    fn new(payload: usize) -> EvalPrimitives {
         EvalPrimitives {
-            pid,
+            pid: PeerId::rand(),
             payload,
             tx: Mutex::new(None),
         }
@@ -156,11 +155,8 @@ async fn main() {
     };
 
     let runtime = Runtime::new(0u8, config, None).await.unwrap();
-    let mut pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut pid);
-    let pid = PeerId::new(1, pid);
 
-    let rx_primitives = Arc::new(EvalPrimitives::new(pid, opt.payload));
+    let rx_primitives = Arc::new(EvalPrimitives::new(opt.payload));
     let tx_primitives = runtime.router.new_primitives(rx_primitives.clone());
     rx_primitives.set_tx(tx_primitives.clone());
 

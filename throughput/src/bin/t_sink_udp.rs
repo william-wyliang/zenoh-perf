@@ -14,7 +14,6 @@
 use async_std::net::{SocketAddr, UdpSocket};
 use async_std::sync::Arc;
 use async_std::task;
-use rand::RngCore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use structopt::StructOpt;
@@ -47,9 +46,7 @@ macro_rules! zrecv {
 
 async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error::Error>> {
     let my_whatami = whatami::ROUTER;
-    let mut my_pid = [0u8; PeerId::MAX_SIZE];
-    rand::thread_rng().fill_bytes(&mut my_pid);
-    let my_pid = PeerId::new(PeerId::MAX_SIZE, my_pid);
+    let my_pid = PeerId::rand();
 
     // Create the reading buffer
     let mut buffer = vec![0u8; 16_000_000];
