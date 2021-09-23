@@ -27,7 +27,7 @@ macro_rules! zsend {
         // Create the buffer for serializing the message
         let mut wbuf = WBuf::new(32, false);
         // Serialize the message
-        assert!(wbuf.write_transport_message(&$msg));
+        assert!(wbuf.write_transport_message(&mut $msg));
         let mut bytes = vec![0u8; wbuf.len()];
         wbuf.copy_into_slice(&mut bytes[..]);
         // Send the message on the link
@@ -62,7 +62,7 @@ async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error:
             let sn_resolution = None;
             let cookie = ZSlice::from(vec![0u8; 8]);
             let attachment = None;
-            let message = TransportMessage::make_init_ack(
+            let mut message = TransportMessage::make_init_ack(
                 whatami,
                 my_pid,
                 sn_resolution,
@@ -86,7 +86,7 @@ async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error:
             lease, initial_sn, ..
         }) => {
             let attachment = None;
-            let message = TransportMessage::make_open_ack(*lease, *initial_sn, attachment);
+            let mut message = TransportMessage::make_open_ack(*lease, *initial_sn, attachment);
             // Send the OpenAck
             let _ = zsend!(message, socket, addr).unwrap();
         }
@@ -112,7 +112,7 @@ async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error:
     task::spawn(async move {
         loop {
             task::sleep(Duration::from_secs(1)).await;
-            let message = TransportMessage::make_keep_alive(None, None);
+            let mut message = TransportMessage::make_keep_alive(None, None);
             let _ = zsend!(message, c_socket, c_addr).unwrap();
         }
     });
