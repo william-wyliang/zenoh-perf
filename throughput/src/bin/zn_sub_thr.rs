@@ -11,32 +11,41 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use async_std::{sync::Arc, task};
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
+};
 use structopt::StructOpt;
-use zenoh::net::ResKey::*;
-use zenoh::net::*;
-use zenoh::Properties;
+use zenoh::{
+    config::{whatami::WhatAmI, Config},
+    prelude::Locator,
+};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "zn_sub_thr")]
+#[structopt(name = "z_sub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[structopt(
+        short,
+        long,
+        help = "locator(s), e.g. --locator tcp/127.0.0.1:7447 tcp/127.0.0.1:7448"
+    )]
+    locator: Vec<Locator>,
+    #[structopt(short, long, help = "peer, router, or client")]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+    #[structopt(short, long, help = "payload size (bytes)")]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+    #[structopt(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+    #[structopt(short, long)]
     scenario: String,
-    #[structopt(long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", help = "configuration file (json5)")]
     config: Option<PathBuf>,
 }
+
+const KEY_EXPR: &str = "/test/thr";
 
 #[async_std::main]
 async fn main() {
@@ -44,43 +53,45 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        locator,
+        mode,
+        payload,
+        name,
+        scenario,
+        config,
+    } = Opt::from_args();
 
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            Properties::from(config)
-        }
-        None => Properties::default(),
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            json5::from_str(&async_std::fs::read_to_string(path).await.unwrap()).unwrap()
+        } else {
+            Config::default()
+        };
+        let mode = WhatAmI::from_str(&mode).unwrap();
+        config.set_mode(Some(mode)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        match mode {
+            WhatAmI::Peer => config.set_listeners(locator).unwrap(),
+            WhatAmI::Client => config.set_peers(locator).unwrap(),
+            _ => panic!("Unsupported mode: {}", mode),
+        };
+        config
     };
-    config.insert("mode".to_string(), opt.mode.clone());
 
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), opt.locator),
-        "client" => config.insert("peer".to_string(), opt.locator),
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
-
-    let session = open(config.into()).await.unwrap();
-
-    let reskey = RId(session
-        .declare_resource(&RName("/test/thr".to_string()))
-        .await
-        .unwrap());
+    let session = zenoh::open(config).await.unwrap();
+    let expr_id = session.declare_expr(KEY_EXPR).await.unwrap();
 
     let messages = Arc::new(AtomicUsize::new(0));
     let c_messages = messages.clone();
 
-    let sub_info = SubInfo {
-        reliability: Reliability::Reliable,
-        mode: SubMode::Push,
-        period: None,
-    };
-    let _sub = session
-        .declare_callback_subscriber(&reskey, &sub_info, move |_sample| {
+    let _subscriber = session
+        .subscribe(expr_id)
+        .callback(move |_| {
             c_messages.fetch_add(1, Ordering::Relaxed);
         })
+        .reliable()
+        .push_mode()
         .await
         .unwrap();
 
@@ -94,9 +105,9 @@ async fn main() {
             let interval = 1_000_000.0 / elapsed;
             println!(
                 "zenoh-net,{},throughput,{},{},{}",
-                opt.scenario,
-                opt.name,
-                opt.payload,
+                scenario,
+                name,
+                payload,
                 (c as f64 / interval).floor() as usize
             );
         }

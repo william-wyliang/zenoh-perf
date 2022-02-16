@@ -11,66 +11,80 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+
+use async_std::{sync::Arc, task};
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 use structopt::StructOpt;
-use zenoh::net::ResKey::*;
-use zenoh::net::*;
-use zenoh::Properties;
+use zenoh::{
+    config::{whatami::WhatAmI, Config},
+    prelude::{Locator, Value},
+    publication::CongestionControl,
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "zn_pub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[structopt(
+        short,
+        long,
+        help = "locator(s), e.g. --locator tcp/127.0.0.1:7447 tcp/127.0.0.1:7448"
+    )]
+    locator: Vec<Locator>,
+    #[structopt(short, long, help = "peer, router, or client")]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+    #[structopt(short, long, help = "payload size (bytes)")]
     payload: usize,
-    #[structopt(short = "t", long = "print")]
+    #[structopt(short = "t", long, help = "print the counter")]
     print: bool,
-    #[structopt(long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", help = "configuration file (json5)")]
     config: Option<PathBuf>,
 }
 
+const KEY_EXPR: &str = "/test/thr";
+
 #[async_std::main]
 async fn main() {
-    // initiate logging
+    // Initiate logging
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
-
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            Properties::from(config)
-        }
-        None => Properties::default(),
+    let Opt {
+        locator,
+        mode,
+        payload,
+        print,
+        config,
+    } = Opt::from_args();
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            json5::from_str(&async_std::fs::read_to_string(path).await.unwrap()).unwrap()
+        } else {
+            Config::default()
+        };
+        config
+            .set_mode(Some(WhatAmI::from_str(&mode).unwrap()))
+            .unwrap();
+        config.set_add_timestamp(Some(false)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config.peers.extend(locator);
+        config
     };
-    config.insert("mode".to_string(), opt.mode.clone());
-    config.insert("add_timestamp".to_string(), "false".to_string());
 
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    config.insert("peer".to_string(), opt.locator);
+    let session = zenoh::open(config).await.unwrap();
+    let expr_id = session.declare_expr(KEY_EXPR).await.unwrap();
+    session.declare_publication(expr_id);
 
-    let session = open(config.into()).await.unwrap();
-
-    let reskey = RId(session
-        .declare_resource(&RName("/test/thr".to_string()))
-        .await
-        .unwrap());
-    let _publ = session.declare_publisher(&reskey).await.unwrap();
-
-    let data: ZBuf = (0usize..opt.payload)
+    let value: Value = (0usize..payload)
         .map(|i| (i % 10) as u8)
         .collect::<Vec<u8>>()
         .into();
 
-    if opt.print {
+    if print {
         let count = Arc::new(AtomicUsize::new(0));
         let c_count = count.clone();
         task::spawn(async move {
@@ -85,13 +99,8 @@ async fn main() {
 
         loop {
             session
-                .write_ext(
-                    &reskey,
-                    data.clone(),
-                    encoding::DEFAULT,
-                    data_kind::DEFAULT,
-                    CongestionControl::Block, // Make sure to not drop messages because of congestion control
-                )
+                .put(KEY_EXPR, value.clone())
+                .congestion_control(CongestionControl::Block)
                 .await
                 .unwrap();
             c_count.fetch_add(1, Ordering::Relaxed);
@@ -99,13 +108,8 @@ async fn main() {
     } else {
         loop {
             session
-                .write_ext(
-                    &reskey,
-                    data.clone(),
-                    encoding::DEFAULT,
-                    data_kind::DEFAULT,
-                    CongestionControl::Block, // Make sure to not drop messages because of congestion control
-                )
+                .put(KEY_EXPR, value.clone())
+                .congestion_control(CongestionControl::Block)
                 .await
                 .unwrap();
         }
