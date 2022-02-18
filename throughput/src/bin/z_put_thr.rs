@@ -11,31 +11,39 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::convert::TryFrom;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use async_std::{sync::Arc, task};
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 use structopt::StructOpt;
-use zenoh::net::ZBuf;
-use zenoh::Properties;
-use zenoh::*;
+use zenoh::{
+    config::{whatami::WhatAmI, Config},
+    prelude::{Locator, Value},
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "z_put_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[structopt(
+        short,
+        long,
+        help = "locator(s), e.g. --locator tcp/127.0.0.1:7447 tcp/127.0.0.1:7448"
+    )]
+    locator: Vec<Locator>,
+    #[structopt(short, long, help = "peer, router, or client")]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+    #[structopt(short, long, help = "payload size (bytes)")]
     payload: usize,
-    #[structopt(short = "t", long = "print")]
+    #[structopt(short = "t", long, help = "print the counter")]
     print: bool,
-    #[structopt(long = "conf", parse(from_os_str))]
+    #[structopt(long = "conf", help = "configuration file (json5)")]
     config: Option<PathBuf>,
 }
+
+const KEY_EXPR: &str = "/test/thr";
 
 #[async_std::main]
 async fn main() {
@@ -43,33 +51,36 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
-
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            Properties::from(config)
-        }
-        None => Properties::default(),
+    let Opt {
+        locator,
+        mode,
+        payload,
+        print,
+        config,
+    } = Opt::from_args();
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            json5::from_str(&async_std::fs::read_to_string(path).await.unwrap()).unwrap()
+        } else {
+            Config::default()
+        };
+        config
+            .set_mode(Some(WhatAmI::from_str(&mode).unwrap()))
+            .unwrap();
+        config.set_add_timestamp(Some(false)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config.peers.extend(locator);
+        config
     };
-    config.insert("mode".to_string(), opt.mode.clone());
-    config.insert("add_timestamp".to_string(), "false".to_string());
 
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    config.insert("peer".to_string(), opt.locator);
-
-    let data: ZBuf = (0usize..opt.payload)
+    let value: Value = (0usize..payload)
         .map(|i| (i % 10) as u8)
         .collect::<Vec<u8>>()
         .into();
 
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
+    let session = zenoh::open(config).await.unwrap();
 
-    let path: Path = Path::try_from("/test/thr").unwrap();
-    let value = Value::from(data);
-
-    if opt.print {
+    if print {
         let count = Arc::new(AtomicUsize::new(0));
         let c_count = count.clone();
         task::spawn(async move {
@@ -83,12 +94,12 @@ async fn main() {
         });
 
         loop {
-            workspace.put(&path, value.clone()).await.unwrap();
+            session.put(KEY_EXPR, value.clone()).await.unwrap();
             c_count.fetch_add(1, Ordering::Relaxed);
         }
     } else {
         loop {
-            workspace.put(&path, value.clone()).await.unwrap();
+            session.put(KEY_EXPR, value.clone()).await.unwrap();
         }
     }
 }
