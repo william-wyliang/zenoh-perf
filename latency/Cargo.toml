@@ -14,7 +14,7 @@
 #
 [package]
 name = "zenoh-perf-latency"
-version = "0.5.0-beta.8"
+version = "0.6.0-dev"
 repository = "https://github.com/eclipse-zenoh/zenoh"
 homepage = "http://zenoh.io"
 authors = ["kydos <angelo@icorsaro.net>",
@@ -32,15 +32,16 @@ description = "Zenoh: Zero Overhead Pub/sub, Store/Query and Compute."
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-async-std = { version = "=1.9.0", features = ["unstable"] }
-async-trait = "0.1.42"
+async-std = { version = "1.9.0", features = ["unstable"] }
+async-trait = "0.1.52"
+futures = "0.3.21"
 env_logger = "0.9.0"
 log = "0.4.14"
-rand = "0.8.3"
-slab = "0.4.2"
-structopt= "0.3.21"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", tag = "0.5.0-beta.9", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", tag = "0.5.0-beta.9" }
+rand = "0.8.5"
+slab = "0.4.5"
+clap = { version = "3.1.1", features = ["derive"] } 
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev="8c17ec6a732141124ceace889ae7888c9df5f5c2", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev="8c17ec6a732141124ceace889ae7888c9df5f5c2" }
 
 [[bin]]
 name = "t_pub_delay"
@@ -59,12 +60,6 @@ name = "r_ping"
 
 [[bin]]
 name = "r_pong"
-
-[[bin]]
-name = "zn_ping"
-
-[[bin]]
-name = "zn_pong"
 
 [[bin]]
 name = "z_ping"

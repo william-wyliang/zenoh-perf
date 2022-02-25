@@ -17,29 +17,31 @@ use async_std::task;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::*;
+use clap::Parser;
+use zenoh::config::Config;
+use zenoh::net::protocol::core::WhatAmI;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_ping")]
+
+#[derive(Debug, Parser)]
+#[clap(name = "z_ping")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
+    #[clap(short = "l", long = "locator")]
     locator: Option<String>,
-    #[structopt(short = "m", long = "mode")]
+    #[clap(short = "m", long = "mode")]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+    #[clap(short = "p", long = "payload")]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+    #[clap(short = "n", long = "name")]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+    #[clap(short = "s", long = "scenario")]
     scenario: String,
-    #[structopt(short = "i", long = "interval")]
+    #[clap(short = "i", long = "interval")]
     interval: f64,
-    #[structopt(long = "parallel")]
+    #[clap(long = "parallel")]
     parallel: bool,
 }
 
-async fn parallel(opt: Opt, config: Properties) {
+async fn parallel(opt: Opt, config: Config) {
     let zenoh = Zenoh::new(config.into()).await.unwrap();
     let zenoh = Arc::new(zenoh);
 
@@ -108,7 +110,7 @@ async fn parallel(opt: Opt, config: Properties) {
     }
 }
 
-async fn single(opt: Opt, config: Properties) {
+async fn single(opt: Opt, config: Config) {
     let zenoh = Zenoh::new(config.into()).await.unwrap();
 
     let scenario = opt.scenario;
@@ -163,16 +165,23 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
+    match opt.mode.as_str() {
+        "peer" => config.set_mode(Some(WhatAmI::Peer)).unwrap(),
+        "client" => config.set_mode(Some(WhatAmI::Client)).unwrap(),
+        _ => panic!("Unsupported mode: {}", opt.mode),
+    };
 
-    if opt.locator.is_none() {
-        config.insert("multicast_scouting".to_string(), "true".to_string());
+    if let Some(l) = opt.locator {
+    config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config
+        .peers
+        .extend(l.split(',').map(|v| v.parse().unwrap()));
+    
     } else {
-        config.insert("multicast_scouting".to_string(), "false".to_string());
-        config.insert("peer".to_string(), opt.locator.clone().unwrap());
+        config.scouting.multicast.set_enabled(Some(true)).unwrap();
     }
 
     if opt.parallel {

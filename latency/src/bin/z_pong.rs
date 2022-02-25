@@ -14,15 +14,15 @@
 use async_std::future;
 use async_std::stream::StreamExt;
 use std::convert::TryInto;
-use structopt::StructOpt;
-use zenoh::*;
+use clap::Parser;
+use zenoh::net::protocol::core::WhatAmI;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_pong")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_pong")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
+    #[clap(short = "l", long = "locator")]
     locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[clap(short = "m", long = "mode")]
     mode: String,
 }
 
@@ -32,17 +32,28 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
-
-    config.insert("multicast_scouting".to_string(), "false".to_string());
+    let mut config = Config::default();
+    
     match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), opt.locator),
-        "client" => config.insert("peer".to_string(), opt.locator),
+        "peer" => {
+            config.set_mode(Some(WhatAmI::Peer)).unwrap();
+            config
+                .listeners
+                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+        }
+        "client" => {
+            config.set_mode(Some(WhatAmI::Client)).unwrap();
+            config
+                .peers
+                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+        }
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
+
+    config.scouting.multicast.set_enabled(Some(false)).unwrap();
+    
 
     let zenoh = Zenoh::new(config.into()).await.unwrap();
     let workspace = zenoh.workspace(None).await.unwrap();
