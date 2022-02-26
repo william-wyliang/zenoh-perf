@@ -16,6 +16,7 @@ use async_std::stream::StreamExt;
 use clap::Parser;
 use zenoh::net::protocol::core::WhatAmI;
 use zenoh::config::Config;
+use zenoh::publication::CongestionControl;
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_pong")]
@@ -58,12 +59,14 @@ async fn main() {
     let session = zenoh::open(config).await.unwrap();
     let mut sub = session
         .subscribe("/test/ping/")
+        .reliable()
         .await
         .unwrap();
 
     while let Some(sample) = sub.next().await {
                    session
                     .put("/test/pong", sample)
+                    .congestion_control(CongestionControl::Block)
                     .await
                     .unwrap();
     }
