@@ -13,16 +13,16 @@
 //
 use async_std::future;
 use async_std::stream::StreamExt;
-use std::convert::TryInto;
 use clap::Parser;
 use zenoh::net::protocol::core::WhatAmI;
+use zenoh::config::Config;
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_pong")]
 struct Opt {
-    #[clap(short = "l", long = "locator")]
+    #[clap(short, long)]
     locator: String,
-    #[clap(short = "m", long = "mode")]
+    #[clap(short, long)]
     mode: String,
 }
 
@@ -55,25 +55,19 @@ async fn main() {
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
     
 
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let mut sub = workspace
-        .subscribe(&"/test/ping/".to_string().try_into().unwrap())
+    let session = zenoh::open(config).await.unwrap();
+    let mut sub = session
+        .subscribe("/test/ping/")
         .await
         .unwrap();
 
-    while let Some(change) = sub.next().await {
-        match change.value.unwrap() {
-            Value::Raw(_, payload) => {
-                workspace
-                    .put(&"/test/pong".try_into().unwrap(), payload.into())
-                    .wait()
+    while let Some(sample) = sub.next().await {
+                   session
+                    .put("/test/pong", sample)
+                    .await
                     .unwrap();
-            }
-            _ => panic!("Invalid value"),
-        }
     }
-
+    
     // Stop forever
     future::pending::<()>().await;
 }

@@ -15,35 +15,34 @@ use async_std::stream::StreamExt;
 use async_std::sync::{Arc, Barrier, Mutex};
 use async_std::task;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::time::{Duration, Instant};
 use clap::Parser;
 use zenoh::config::Config;
 use zenoh::net::protocol::core::WhatAmI;
-
+use zenoh::prelude::*;
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_ping")]
 struct Opt {
-    #[clap(short = "l", long = "locator")]
+    #[clap(short, long)]
     locator: Option<String>,
-    #[clap(short = "m", long = "mode")]
+    #[clap(short, long)]
     mode: String,
-    #[clap(short = "p", long = "payload")]
+    #[clap(short, long)]
     payload: usize,
-    #[clap(short = "n", long = "name")]
+    #[clap(short, long)]
     name: String,
-    #[clap(short = "s", long = "scenario")]
+    #[clap(short, long)]
     scenario: String,
-    #[clap(short = "i", long = "interval")]
+    #[clap(short, long)]
     interval: f64,
     #[clap(long = "parallel")]
     parallel: bool,
 }
 
 async fn parallel(opt: Opt, config: Config) {
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let zenoh = Arc::new(zenoh);
+    let session = zenoh::open(config).await.unwrap();
+    let session = Arc::new(session);
 
     // The hashmap with the pings
     let pending = Arc::new(Mutex::new(HashMap::<u64, Instant>::new()));
@@ -51,23 +50,23 @@ async fn parallel(opt: Opt, config: Config) {
 
     let c_pending = pending.clone();
     let c_barrier = barrier.clone();
-    let c_zenoh = zenoh.clone();
+    let c_session = session.clone();
     let scenario = opt.scenario;
     let name = opt.name;
     let interval = opt.interval;
     task::spawn(async move {
-        let workspace = c_zenoh.workspace(None).await.unwrap();
-        let mut sub = workspace
-            .subscribe(&"/test/pong/".to_string().try_into().unwrap())
+        let mut sub = c_session
+            .subscribe("/test/pong/")
             .await
             .unwrap();
 
         // Notify that the subscriber has been created
         c_barrier.wait().await;
 
-        while let Some(change) = sub.next().await {
-            match change.value.unwrap() {
-                Value::Raw(_, mut payload) => {
+          loop { 
+                    match sub.next().await {
+                    Some(sample) => {         
+                    let mut payload = sample.value.payload;
                     let mut count_bytes = [0u8; 8];
                     payload.read_bytes(&mut count_bytes);
                     let count = u64::from_le_bytes(count_bytes);
@@ -81,17 +80,16 @@ async fn parallel(opt: Opt, config: Config) {
                         interval,
                         count,
                         instant.elapsed().as_micros()
-                    );
-                }
-                _ => panic!("Invalid value"),
-            }
-        }
-    });
+                      );
+                    }
+                      _ => panic!("Invalid value!"), 
+                    }
+          }
+       });
 
     // Wait for the subscriber to be declared
     barrier.wait().await;
 
-    let workspace = zenoh.workspace(None).await.unwrap();
     let mut count: u64 = 0;
     loop {
         let count_bytes: [u8; 8] = count.to_le_bytes();
@@ -100,8 +98,8 @@ async fn parallel(opt: Opt, config: Config) {
 
         pending.lock().await.insert(count, Instant::now());
 
-        workspace
-            .put(&"/test/ping".try_into().unwrap(), payload.into())
+        session
+            .put("/test/ping", payload)
             .await
             .unwrap();
 
@@ -111,15 +109,14 @@ async fn parallel(opt: Opt, config: Config) {
 }
 
 async fn single(opt: Opt, config: Config) {
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
+    let session = zenoh::open(config).await.unwrap();
 
     let scenario = opt.scenario;
     let name = opt.name;
     let interval = opt.interval;
 
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let mut sub = workspace
-        .subscribe(&"/test/pong/".to_string().try_into().unwrap())
+    let mut sub = session
+        .subscribe("/test/pong/")
         .await
         .unwrap();
 
@@ -130,13 +127,14 @@ async fn single(opt: Opt, config: Config) {
         payload[0..8].copy_from_slice(&count_bytes);
 
         let now = Instant::now();
-        workspace
-            .put(&"/test/ping".try_into().unwrap(), payload.into())
+        session
+            .put("/test/ping", payload)
             .await
             .unwrap();
 
-        match sub.next().await.unwrap().value.unwrap() {
-            Value::Raw(_, mut payload) => {
+        match sub.next().await {
+            Some(sample) => {
+                let mut payload = sample.value.payload;
                 let mut count_bytes = [0u8; 8];
                 payload.read_bytes(&mut count_bytes);
                 let s_count = u64::from_le_bytes(count_bytes);
@@ -167,14 +165,14 @@ async fn main() {
     // Parse the args
     let opt = Opt::parse();
 
-    let mut config = Properties::default();
+    let mut config = Config::default();
     match opt.mode.as_str() {
         "peer" => config.set_mode(Some(WhatAmI::Peer)).unwrap(),
         "client" => config.set_mode(Some(WhatAmI::Client)).unwrap(),
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
 
-    if let Some(l) = opt.locator {
+    if let Some(ref l) = opt.locator {
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
         config
         .peers
