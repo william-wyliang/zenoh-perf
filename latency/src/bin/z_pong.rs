@@ -14,8 +14,8 @@
 use async_std::future;
 use async_std::stream::StreamExt;
 use clap::Parser;
-use zenoh::net::protocol::core::WhatAmI;
 use zenoh::config::Config;
+use zenoh::net::protocol::core::WhatAmI;
 use zenoh::publication::CongestionControl;
 
 #[derive(Debug, Parser)]
@@ -36,7 +36,7 @@ async fn main() {
     let opt = Opt::parse();
 
     let mut config = Config::default();
-    
+
     match opt.mode.as_str() {
         "peer" => {
             config.set_mode(Some(WhatAmI::Peer)).unwrap();
@@ -54,23 +54,18 @@ async fn main() {
     };
 
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
-    
 
     let session = zenoh::open(config).await.unwrap();
-    let mut sub = session
-        .subscribe("/test/ping/")
-        .reliable()
-        .await
-        .unwrap();
+    let mut sub = session.subscribe("/test/ping/").reliable().await.unwrap();
 
     while let Some(sample) = sub.next().await {
-                   session
-                    .put("/test/pong", sample)
-                    .congestion_control(CongestionControl::Block)
-                    .await
-                    .unwrap();
+        session
+            .put("/test/pong", sample)
+            .congestion_control(CongestionControl::Block)
+            .await
+            .unwrap();
     }
-    
+
     // Stop forever
     future::pending::<()>().await;
 }

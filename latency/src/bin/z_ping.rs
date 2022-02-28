@@ -14,9 +14,9 @@
 use async_std::stream::StreamExt;
 use async_std::sync::{Arc, Barrier, Mutex};
 use async_std::task;
+use clap::Parser;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use clap::Parser;
 use zenoh::config::Config;
 use zenoh::net::protocol::core::WhatAmI;
 use zenoh::prelude::*;
@@ -58,16 +58,16 @@ async fn parallel(opt: Opt, config: Config) {
     task::spawn(async move {
         let mut sub = c_session
             .subscribe("/test/pong/")
-            .reliable()    // Default of the reliability is `best_effort`
+            .reliable() // Default of the reliability is `best_effort`
             .await
             .unwrap();
 
         // Notify that the subscriber has been created
         c_barrier.wait().await;
 
-          loop { 
-                    match sub.next().await {
-                    Some(sample) => {         
+        loop {
+            match sub.next().await {
+                Some(sample) => {
                     let mut payload = sample.value.payload;
                     let mut count_bytes = [0u8; 8];
                     payload.read_bytes(&mut count_bytes);
@@ -82,12 +82,12 @@ async fn parallel(opt: Opt, config: Config) {
                         interval,
                         count,
                         instant.elapsed().as_micros()
-                      );
-                    }
-                      _ => panic!("Invalid value!"), 
-                    }
-          }
-       });
+                    );
+                }
+                _ => panic!("Invalid value!"),
+            }
+        }
+    });
 
     // Wait for the subscriber to be declared
     barrier.wait().await;
@@ -118,11 +118,7 @@ async fn single(opt: Opt, config: Config) {
     let name = opt.name;
     let interval = opt.interval;
 
-    let mut sub = session
-        .subscribe("/test/pong/")
-        .reliable()
-        .await
-        .unwrap();
+    let mut sub = session.subscribe("/test/pong/").reliable().await.unwrap();
 
     let mut count: u64 = 0;
     loop {
@@ -178,11 +174,10 @@ async fn main() {
     };
 
     if let Some(ref l) = opt.locator {
-    config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
         config
-        .peers
-        .extend(l.split(',').map(|v| v.parse().unwrap()));
-    
+            .peers
+            .extend(l.split(',').map(|v| v.parse().unwrap()));
     } else {
         config.scouting.multicast.set_enabled(Some(true)).unwrap();
     }
