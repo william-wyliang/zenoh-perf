@@ -41,7 +41,7 @@ struct Opt {
     name: String,
     #[structopt(short, long)]
     scenario: String,
-    #[structopt(long = "conf", help = "configuration file (json5)")]
+    #[structopt(long = "conf", help = "configuration file (json5 or yaml)")]
     config: Option<PathBuf>,
 }
 
@@ -64,7 +64,7 @@ async fn main() {
 
     let config = {
         let mut config: Config = if let Some(path) = config {
-            json5::from_str(&async_std::fs::read_to_string(path).await.unwrap()).unwrap()
+            Config::from_file(path).unwrap()
         } else {
             Config::default()
         };

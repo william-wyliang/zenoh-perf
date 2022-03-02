@@ -32,16 +32,15 @@ description = "Zenoh: Zero Overhead Pub/sub, Store/Query and Compute."
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-async-std = { version = "=1.9.0", features = ["unstable"] }
+async-std = { version = "=1.10.0", features = ["unstable"] }
 async-trait = "0.1.52"
 env_logger = "0.9.0"
 log = "0.4.14"
 rand = "0.8.5"
 slab = "0.4.5"
 structopt = "0.3.26"
-json5 = "0.4.1"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "8c17ec6a732141124ceace889ae7888c9df5f5c2", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "8c17ec6a732141124ceace889ae7888c9df5f5c2" }
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54" }
 
 [[bin]]
 name = "t_pub_thr"
