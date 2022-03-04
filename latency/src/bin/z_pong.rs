@@ -13,16 +13,17 @@
 //
 use async_std::future;
 use async_std::stream::StreamExt;
-use std::convert::TryInto;
-use structopt::StructOpt;
-use zenoh::*;
+use clap::Parser;
+use zenoh::config::Config;
+use zenoh::net::protocol::core::WhatAmI;
+use zenoh::publication::CongestionControl;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_pong")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_pong")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
+    #[clap(short, long)]
     locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[clap(short, long)]
     mode: String,
 }
 
@@ -32,35 +33,37 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
+    let mut config = Config::default();
 
-    config.insert("multicast_scouting".to_string(), "false".to_string());
     match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), opt.locator),
-        "client" => config.insert("peer".to_string(), opt.locator),
+        "peer" => {
+            config.set_mode(Some(WhatAmI::Peer)).unwrap();
+            config
+                .listeners
+                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+        }
+        "client" => {
+            config.set_mode(Some(WhatAmI::Client)).unwrap();
+            config
+                .peers
+                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+        }
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
 
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let mut sub = workspace
-        .subscribe(&"/test/ping/".to_string().try_into().unwrap())
-        .await
-        .unwrap();
+    config.scouting.multicast.set_enabled(Some(false)).unwrap();
 
-    while let Some(change) = sub.next().await {
-        match change.value.unwrap() {
-            Value::Raw(_, payload) => {
-                workspace
-                    .put(&"/test/pong".try_into().unwrap(), payload.into())
-                    .wait()
-                    .unwrap();
-            }
-            _ => panic!("Invalid value"),
-        }
+    let session = zenoh::open(config).await.unwrap();
+    let mut sub = session.subscribe("/test/ping/").reliable().await.unwrap();
+
+    while let Some(sample) = sub.next().await {
+        session
+            .put("/test/pong", sample)
+            .congestion_control(CongestionControl::Block)
+            .await
+            .unwrap();
     }
 
     // Stop forever
