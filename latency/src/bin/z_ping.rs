@@ -22,6 +22,7 @@ use zenoh::net::protocol::core::WhatAmI;
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
 use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::prelude::*;
+use zenoh::publication::CongestionControl;
 
 
 #[derive(Debug, StructOpt)]
@@ -60,6 +61,7 @@ async fn parallel(opt: Opt, config: Config) {
     task::spawn(async move {
         let mut sub = c_session
             .subscribe("/test/pong/")
+            .reliable() //Default of the reliability is `best_effort`
             .await
             .unwrap();
 
@@ -102,6 +104,7 @@ async fn parallel(opt: Opt, config: Config) {
 
         session
             .put("/test/ping", payload)
+            .congestion_control(CongestionControl::Block)
             .await
             .unwrap();
 
@@ -119,6 +122,7 @@ async fn single(opt: Opt, config: Config) {
 
     let mut sub = session
         .subscribe("/test/pong/")
+        .reliable()
         .await
         .unwrap();
 
@@ -131,6 +135,7 @@ async fn single(opt: Opt, config: Config) {
         let now = Instant::now();
         session
             .put("/test/ping", payload)
+            .congestion_control(CongestionControl::Block)
             .await
             .unwrap();
 
