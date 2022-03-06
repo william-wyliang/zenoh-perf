@@ -13,9 +13,10 @@
 //
 use async_std::future;
 use async_std::stream::StreamExt;
-use std::convert::TryInto;
 use structopt::StructOpt;
-use zenoh::*;
+use zenoh::config::Config;
+use zenoh::net::protocol::core::WhatAmI;
+
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "z_pong")]
@@ -34,33 +35,35 @@ async fn main() {
     // Parse the args
     let opt = Opt::from_args();
 
-    let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
-
-    config.insert("multicast_scouting".to_string(), "false".to_string());
+    let mut config = Config::default();
     match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), opt.locator),
-        "client" => config.insert("peer".to_string(), opt.locator),
+        "peer" => {
+            config.set_mode(Some(WhatAmI::Peer)).unwrap();
+            config
+                .listeners
+                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+        }
+        "client" => {
+            config.set_mode(Some(WhatAmI::Client)).unwrap();
+            config
+                .peers
+                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+        }
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
+    config.scouting.multicast.set_enabled(Some(false)).unwrap();
 
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let mut sub = workspace
-        .subscribe(&"/test/ping/".to_string().try_into().unwrap())
+    let session = zenoh::open(config).await.unwrap();
+    let mut sub = session
+        .subscribe("/test/ping/")
         .await
         .unwrap();
 
-    while let Some(change) = sub.next().await {
-        match change.value.unwrap() {
-            Value::Raw(_, payload) => {
-                workspace
-                    .put(&"/test/pong".try_into().unwrap(), payload.into())
-                    .wait()
+    while let Some(sample) = sub.next().await {
+                session
+                    .put("/test/pong", sample)
+                    .await
                     .unwrap();
-            }
-            _ => panic!("Invalid value"),
-        }
     }
 
     // Stop forever
