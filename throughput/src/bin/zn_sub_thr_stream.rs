@@ -11,32 +11,37 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::net::ResKey::*;
-use zenoh::net::*;
-use zenoh::Properties;
+use async_std::{sync::Arc, task};
+use clap::Parser;
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
+};
+use zenoh::{
+    config::{whatami::WhatAmI, Config},
+    prelude::*,
+};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "zn_sub_thr_stream")]
+#[derive(Debug, Parser)]
+#[clap(name = "zn_sub_thr_stream")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[clap(short, long, value_delimiter = ',')]
+    locator: Vec<Locator>,
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(long = "conf", parse(from_os_str))]
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
+
+const KEY_EXPR: &str = "/test/thr";
 
 #[async_std::main]
 async fn main() {
@@ -44,34 +49,38 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        locator,
+        mode,
+        payload,
+        name,
+        scenario,
+        config,
+    } = Opt::parse();
 
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            Properties::from(config)
-        }
-        None => Properties::default(),
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            Config::from_file(path).unwrap()
+        } else {
+            Config::default()
+        };
+        let mode = WhatAmI::from_str(&mode).unwrap();
+        config.set_mode(Some(mode)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        match mode {
+            WhatAmI::Peer => config.set_listeners(locator).unwrap(),
+            WhatAmI::Client => config.set_peers(locator).unwrap(),
+            _ => panic!("Unsupported mode: {}", mode),
+        };
+        config
     };
-    config.insert("mode".to_string(), opt.mode.clone());
 
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    let loc = opt.locator.clone();
-    match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), loc),
-        "client" => config.insert("peer".to_string(), loc),
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
-
-    let session = open(config.into()).await.unwrap();
-
-    let reskey = RId(session
-        .declare_resource(&RName("/test/thr".to_string()))
-        .await
-        .unwrap());
+    let session = zenoh::open(config).await.unwrap();
+    let expr_id = session.declare_expr(KEY_EXPR).await.unwrap();
 
     let messages = Arc::new(AtomicUsize::new(0));
     let c_messages = messages.clone();
+
     task::spawn(async move {
         loop {
             let now = Instant::now();
@@ -83,22 +92,19 @@ async fn main() {
                 let interval = 1_000_000.0 / elapsed;
                 println!(
                     "zenoh-net,{},throughput,{},{},{}",
-                    opt.scenario,
-                    opt.name,
-                    opt.payload,
+                    scenario,
+                    name,
+                    payload,
                     (c as f64 / interval).floor() as usize
                 );
             }
         }
     });
 
-    let sub_info = SubInfo {
-        reliability: Reliability::Reliable,
-        mode: SubMode::Push,
-        period: None,
-    };
     let mut sub = session
-        .declare_subscriber(&reskey, &sub_info)
+        .subscribe(expr_id)
+        .reliable()
+        .push_mode()
         .await
         .unwrap();
 
