@@ -13,35 +13,40 @@
 //
 
 use async_std::{sync::Arc, task};
+use clap::Parser;
 use std::{
     path::PathBuf,
     str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
-use structopt::StructOpt;
 use zenoh::{
     config::{whatami::WhatAmI, Config},
     prelude::{Locator, Value},
     publication::CongestionControl,
 };
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "zn_pub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "zn_pub_thr")]
 struct Opt {
-    #[structopt(
-        short,
-        long,
-        help = "locator(s), e.g. --locator tcp/127.0.0.1:7447 tcp/127.0.0.1:7448"
-    )]
+    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     locator: Vec<Locator>,
-    #[structopt(short, long, help = "peer, router, or client")]
+
+    /// peer, router, or client
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short, long, help = "payload size (bytes)")]
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "t", long, help = "print the counter")]
+
+    /// print the counter
+    #[clap(short = 't', long)]
     print: bool,
-    #[structopt(long = "conf", help = "configuration file (json5 or yaml)")]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf")]
     config: Option<PathBuf>,
 }
 
@@ -59,7 +64,7 @@ async fn main() {
         payload,
         print,
         config,
-    } = Opt::from_args();
+    } = Opt::parse();
     let config = {
         let mut config: Config = if let Some(path) = config {
             Config::from_file(path).unwrap()
@@ -99,7 +104,7 @@ async fn main() {
 
         loop {
             session
-                .put(KEY_EXPR, value.clone())
+                .put(expr_id, value.clone())
                 .congestion_control(CongestionControl::Block)
                 .await
                 .unwrap();
@@ -108,7 +113,7 @@ async fn main() {
     } else {
         loop {
             session
-                .put(KEY_EXPR, value.clone())
+                .put(expr_id, value.clone())
                 .congestion_control(CongestionControl::Block)
                 .await
                 .unwrap();

@@ -12,36 +12,41 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::{sync::Arc, task};
+use clap::Parser;
 use std::{
     path::PathBuf,
     str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
-use structopt::StructOpt;
 use zenoh::{
     config::{whatami::WhatAmI, Config},
     prelude::Locator,
 };
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_sub_thr")]
 struct Opt {
-    #[structopt(
-        short,
-        long,
-        help = "locator(s), e.g. --locator tcp/127.0.0.1:7447 tcp/127.0.0.1:7448"
-    )]
+    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     locator: Vec<Locator>,
-    #[structopt(short, long, help = "peer, router, or client")]
+
+    /// peer, router, or client
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short, long, help = "payload size (bytes)")]
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short, long)]
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short, long)]
+
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(long = "conf", help = "configuration file (json5 or yaml)")]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf")]
     config: Option<PathBuf>,
 }
 
@@ -60,7 +65,7 @@ async fn main() {
         name,
         scenario,
         config,
-    } = Opt::from_args();
+    } = Opt::parse();
 
     let config = {
         let mut config: Config = if let Some(path) = config {
