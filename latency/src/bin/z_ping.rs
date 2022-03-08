@@ -16,7 +16,7 @@ use async_std::sync::{Arc, Barrier, Mutex};
 use async_std::task;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use structopt::StructOpt;
+use clap::Parser;
 use zenoh::config::Config;
 use zenoh::net::protocol::core::WhatAmI;
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
@@ -25,22 +25,22 @@ use zenoh::prelude::*;
 use zenoh::publication::CongestionControl;
 
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_ping")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_ping")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
+    #[clap(short, long)]
     locator: Option<String>,
-    #[structopt(short = "m", long = "mode")]
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(short = "i", long = "interval")]
+    #[clap(short, long)]
     interval: f64,
-    #[structopt(long = "parallel")]
+    #[clap(long = "parallel")]
     parallel: bool,
 }
 
@@ -172,7 +172,7 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let mut config = Config::default();
     match opt.mode.as_str() {

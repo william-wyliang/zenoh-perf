@@ -13,17 +13,17 @@
 //
 use async_std::future;
 use async_std::stream::StreamExt;
-use structopt::StructOpt;
+use clap::Parser;
 use zenoh::config::Config;
 use zenoh::net::protocol::core::WhatAmI;
 use zenoh::publication::CongestionControl;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_pong")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_pong")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
+    #[clap(short, long)]
     locator: String,
-    #[structopt(short = "m", long = "mode")]
+    #[clap(short, long)]
     mode: String,
 }
 
@@ -33,7 +33,7 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let mut config = Config::default();
     match opt.mode.as_str() {
