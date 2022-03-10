@@ -27,17 +27,26 @@ use zenoh::{
 #[derive(Debug, Parser)]
 #[clap(name = "zn_sub_thr_stream")]
 struct Opt {
+    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
     locator: Vec<Locator>,
+
+    /// peer, router, or client
     #[clap(short, long)]
     mode: String,
+
+    /// payload size (bytes)
     #[clap(short, long)]
     payload: usize,
+
     #[clap(short, long)]
     name: String,
+
     #[clap(short, long)]
     scenario: String,
-    #[clap(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf")]
     config: Option<PathBuf>,
 }
 
