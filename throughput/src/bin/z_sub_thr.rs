@@ -48,6 +48,10 @@ struct Opt {
     /// configuration file (json5 or yaml)
     #[clap(long = "conf")]
     config: Option<PathBuf>,
+
+    /// declare a numerical Id for the subscribed key expression
+    #[clap(long = "declare_expr")]
+    use_expr: bool,
 }
 
 const KEY_EXPR: &str = "/test/thr";
@@ -65,6 +69,7 @@ async fn main() {
         name,
         scenario,
         config,
+        use_expr,
     } = Opt::parse();
 
     let config = {
@@ -88,13 +93,21 @@ async fn main() {
     let c_messages = messages.clone();
 
     let session = zenoh::open(config).await.unwrap();
-    let _subscriber = session
-        .subscribe(KEY_EXPR)
-        .callback(move |_| {
-            c_messages.fetch_add(1, Ordering::Relaxed);
-        })
-        .await
-        .unwrap();
+    let _subscriber = {
+        let builder = if use_expr {
+            session.subscribe(KEY_EXPR)
+        } else {
+            session.subscribe(session.declare_expr(KEY_EXPR).await.unwrap())
+        };
+        builder
+            .callback(move |_| {
+                c_messages.fetch_add(1, Ordering::Relaxed);
+            })
+            .reliable()
+            .push_mode()
+            .await
+            .unwrap()
+    };
 
     loop {
         let now = Instant::now();
