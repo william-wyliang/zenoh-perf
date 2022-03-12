@@ -21,7 +21,7 @@ use std::{
 };
 use zenoh::{
     config::{whatami::WhatAmI, Config},
-    prelude::Locator,
+    prelude::*,
 };
 
 #[derive(Debug, Parser)]
@@ -52,6 +52,10 @@ struct Opt {
     /// declare a numerical Id for the subscribed key expression
     #[clap(long = "declare_expr")]
     use_expr: bool,
+
+    /// do not use callback for subscriber
+    #[clap(long = "no-callback")]
+    no_callback: bool,
 }
 
 const KEY_EXPR: &str = "/test/thr";
@@ -70,6 +74,7 @@ async fn main() {
         scenario,
         config,
         use_expr,
+        no_callback,
     } = Opt::parse();
 
     let config = {
@@ -93,22 +98,37 @@ async fn main() {
     let c_messages = messages.clone();
 
     let session = zenoh::open(config).await.unwrap();
-    let _subscriber = {
-        let builder = if use_expr {
-            session.subscribe(KEY_EXPR)
-        } else {
-            session.subscribe(session.declare_expr(KEY_EXPR).await.unwrap())
-        };
-        builder
+    let sub_builder = if use_expr {
+        session.subscribe(KEY_EXPR)
+    } else {
+        session.subscribe(session.declare_expr(KEY_EXPR).await.unwrap())
+    };
+
+    if no_callback {
+        task::spawn(async move {
+            measure(c_messages, scenario, name, payload).await;
+        });
+
+        let mut subscriber = sub_builder.reliable().push_mode().await.unwrap();
+
+        while subscriber.receiver().recv().is_ok() {
+            messages.fetch_add(1, Ordering::Relaxed);
+        }
+    } else {
+        let _subscriber = sub_builder
             .callback(move |_| {
                 c_messages.fetch_add(1, Ordering::Relaxed);
             })
             .reliable()
             .push_mode()
             .await
-            .unwrap()
-    };
+            .unwrap();
 
+        measure(messages, scenario, name, payload).await;
+    }
+}
+
+async fn measure(messages: Arc<AtomicUsize>, scenario: String, name: String, payload: usize) {
     loop {
         let now = Instant::now();
         task::sleep(Duration::from_secs(1)).await;
