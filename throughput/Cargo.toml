@@ -68,9 +68,6 @@ name = "r_pub_thr"
 name = "r_sub_thr"
 
 [[bin]]
-name = "zn_pub_thr"
-
-[[bin]]
 name = "z_put_thr"
 
 [[bin]]
