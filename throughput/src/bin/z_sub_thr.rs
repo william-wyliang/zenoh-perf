@@ -50,7 +50,7 @@ struct Opt {
     config: Option<PathBuf>,
 
     /// declare a numerical Id for the subscribed key expression
-    #[clap(long = "declare_expr")]
+    #[clap(long = "declare-expr")]
     use_expr: bool,
 
     /// do not use callback for subscriber
