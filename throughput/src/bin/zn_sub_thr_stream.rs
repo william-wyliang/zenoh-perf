@@ -21,11 +21,11 @@ use std::{
 };
 use zenoh::{
     config::{whatami::WhatAmI, Config},
-    prelude::Locator,
+    prelude::*,
 };
 
 #[derive(Debug, Parser)]
-#[clap(name = "z_sub_thr")]
+#[clap(name = "zn_sub_thr_stream")]
 struct Opt {
     /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
@@ -48,10 +48,6 @@ struct Opt {
     /// configuration file (json5 or yaml)
     #[clap(long = "conf")]
     config: Option<PathBuf>,
-
-    /// declare a numerical Id for the subscribed key expression
-    #[clap(long = "declare_expr")]
-    use_expr: bool,
 }
 
 const KEY_EXPR: &str = "/test/thr";
@@ -69,7 +65,6 @@ async fn main() {
         name,
         scenario,
         config,
-        use_expr,
     } = Opt::parse();
 
     let config = {
@@ -89,41 +84,40 @@ async fn main() {
         config
     };
 
+    let session = zenoh::open(config).await.unwrap();
+    let expr_id = session.declare_expr(KEY_EXPR).await.unwrap();
+
     let messages = Arc::new(AtomicUsize::new(0));
     let c_messages = messages.clone();
 
-    let session = zenoh::open(config).await.unwrap();
-    let _subscriber = {
-        let builder = if use_expr {
-            session.subscribe(KEY_EXPR)
-        } else {
-            session.subscribe(session.declare_expr(KEY_EXPR).await.unwrap())
-        };
-        builder
-            .callback(move |_| {
-                c_messages.fetch_add(1, Ordering::Relaxed);
-            })
-            .reliable()
-            .push_mode()
-            .await
-            .unwrap()
-    };
+    task::spawn(async move {
+        loop {
+            let now = Instant::now();
+            task::sleep(Duration::from_secs(1)).await;
+            let elapsed = now.elapsed().as_micros() as f64;
 
-    loop {
-        let now = Instant::now();
-        task::sleep(Duration::from_secs(1)).await;
-        let elapsed = now.elapsed().as_micros() as f64;
-
-        let c = messages.swap(0, Ordering::Relaxed);
-        if c > 0 {
-            let interval = 1_000_000.0 / elapsed;
-            println!(
-                "zenoh,{},throughput,{},{},{}",
-                scenario,
-                name,
-                payload,
-                (c as f64 / interval).floor() as usize
-            );
+            let c = c_messages.swap(0, Ordering::Relaxed);
+            if c > 0 {
+                let interval = 1_000_000.0 / elapsed;
+                println!(
+                    "zenoh-net,{},throughput,{},{},{}",
+                    scenario,
+                    name,
+                    payload,
+                    (c as f64 / interval).floor() as usize
+                );
+            }
         }
+    });
+
+    let mut sub = session
+        .subscribe(expr_id)
+        .reliable()
+        .push_mode()
+        .await
+        .unwrap();
+
+    while sub.receiver().recv().is_ok() {
+        messages.fetch_add(1, Ordering::Relaxed);
     }
 }
