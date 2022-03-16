@@ -45,33 +45,3 @@ zenoh-core = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba3
 zenoh-cfg-properties = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea" }
 zenoh-protocol-core = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea" }
 clap = { version = "3.1.5", features = ["derive"] }
-
-[[bin]]
-name = "t_pub_thr"
-
-[[bin]]
-name = "t_sub_thr"
-
-[[bin]]
-name = "t_pubsub_thr"
-
-[[bin]]
-name = "t_router_thr"
-
-[[bin]]
-name = "t_sink_tcp"
-
-[[bin]]
-name = "t_sink_udp"
-
-[[bin]]
-name = "r_pub_thr"
-
-[[bin]]
-name = "r_sub_thr"
-
-[[bin]]
-name = "z_put_thr"
-
-[[bin]]
-name = "z_sub_thr"
