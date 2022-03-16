@@ -22,6 +22,7 @@ use std::{
 use zenoh::{
     config::{whatami::WhatAmI, Config},
     prelude::{Locator, Value},
+    publication::CongestionControl,
 };
 
 #[derive(Debug, Parser)]
@@ -46,6 +47,14 @@ struct Opt {
     /// configuration file (json5 or yaml)
     #[clap(long = "conf")]
     config: Option<PathBuf>,
+
+    /// declare a numerical Id for the publisher's key expression
+    #[clap(long)]
+    use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
 
 const KEY_EXPR: &str = "/test/thr";
@@ -62,6 +71,8 @@ async fn main() {
         payload,
         print,
         config,
+        use_expr,
+        declare_publication,
     } = Opt::parse();
     let config = {
         let mut config: Config = if let Some(path) = config {
@@ -84,6 +95,18 @@ async fn main() {
         .into();
 
     let session = zenoh::open(config).await.unwrap();
+    let writer = if use_expr {
+        let expr_id = session.declare_expr(KEY_EXPR).await.unwrap();
+        if declare_publication {
+            session.declare_publication(expr_id);
+        }
+        session.put(expr_id, value.clone())
+    } else {
+        if declare_publication {
+            session.declare_publication(KEY_EXPR);
+        }
+        session.put(KEY_EXPR, value.clone())
+    };
 
     if print {
         let count = Arc::new(AtomicUsize::new(0));
@@ -99,12 +122,20 @@ async fn main() {
         });
 
         loop {
-            session.put(KEY_EXPR, value.clone()).await.unwrap();
+            writer
+                .clone()
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
             c_count.fetch_add(1, Ordering::Relaxed);
         }
     } else {
         loop {
-            session.put(KEY_EXPR, value.clone()).await.unwrap();
+            writer
+                .clone()
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
         }
     }
 }
