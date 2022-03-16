@@ -45,7 +45,7 @@ struct Opt {
     print: bool,
 
     /// configuration file (json5 or yaml)
-    #[clap(long = "conf")]
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 
     /// declare a numerical Id for the publisher's key expression
