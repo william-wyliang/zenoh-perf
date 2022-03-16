@@ -15,25 +15,22 @@ use async_std::{sync::Arc, task};
 use clap::Parser;
 use std::{
     path::PathBuf,
-    str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
-use zenoh::{
-    config::{whatami::WhatAmI, Config},
-    prelude::*,
-};
+use zenoh::{config::Config, prelude::Receiver};
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_sub_thr")]
 struct Opt {
     /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
-    locator: Vec<Locator>,
+    locator: Vec<EndPoint>,
 
     /// peer, router, or client
-    #[clap(short, long)]
-    mode: String,
+    #[clap(short, long, possible_values = ["peer", "client"])]
+    mode: WhatAmI,
 
     /// payload size (bytes)
     #[clap(short, long)]
@@ -83,12 +80,11 @@ async fn main() {
         } else {
             Config::default()
         };
-        let mode = WhatAmI::from_str(&mode).unwrap();
         config.set_mode(Some(mode)).unwrap();
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
         match mode {
-            WhatAmI::Peer => config.set_listeners(locator).unwrap(),
-            WhatAmI::Client => config.set_peers(locator).unwrap(),
+            WhatAmI::Peer => config.listen.endpoints.extend(locator),
+            WhatAmI::Client => config.connect.endpoints.extend(locator),
             _ => panic!("Unsupported mode: {}", mode),
         };
         config
