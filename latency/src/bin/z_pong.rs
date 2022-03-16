@@ -21,8 +21,11 @@ use zenoh::publication::CongestionControl;
 #[derive(Debug, Parser)]
 #[clap(name = "z_pong")]
 struct Opt {
+    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     locator: String,
+    
+    /// peer, router, or client
     #[clap(short, long)]
     mode: String,
 }
