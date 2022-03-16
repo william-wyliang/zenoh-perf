@@ -28,18 +28,29 @@ use zenoh::publication::CongestionControl;
 #[derive(Debug, Parser)]
 #[clap(name = "z_ping")]
 struct Opt {
+    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     locator: Option<String>,
+    
+    /// peer, router, or client
     #[clap(short, long)]
     mode: String,
+   
+    /// payload size (bytes) 
     #[clap(short, long)]
     payload: usize,
+    
     #[clap(short, long)]
     name: String,
+    
     #[clap(short, long)]
     scenario: String,
+    
+    /// interval of sending message (sec)
     #[clap(short, long)]
     interval: f64,
+    
+    /// spawn a task to receive or not
     #[clap(long = "parallel")]
     parallel: bool,
 }
