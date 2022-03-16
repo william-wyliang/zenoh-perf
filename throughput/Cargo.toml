@@ -39,9 +39,9 @@ log = "0.4.14"
 rand = "0.8.5"
 slab = "0.4.5"
 json5 = "0.4.1"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea" }
-zenoh-core = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea" }
-zenoh-cfg-properties = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea" }
-zenoh-protocol-core = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "641ba35a60e0d49f1aeecd854e5028ecde3da8ea" }
+zenoh = { version="0.6.0-dev", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = "0.6.0-dev"
+zenoh-core = "0.6.0-dev"
+zenoh-cfg-properties = "0.6.0-dev"
+zenoh-protocol-core = "0.6.0-dev"
 clap = { version = "3.1.5", features = ["derive"] }
