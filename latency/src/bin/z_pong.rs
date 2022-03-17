@@ -24,10 +24,18 @@ struct Opt {
     /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     locator: String,
-    
+
     /// peer, router, or client
     #[clap(short, long)]
     mode: String,
+
+    /// declare a numerical Id for key expression
+    #[clap(long)]
+    use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
 
 #[async_std::main]
@@ -57,18 +65,40 @@ async fn main() {
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
 
     let session = zenoh::open(config).await.unwrap();
-    let mut sub = session
-        .subscribe("/test/ping/")
-        .reliable()
-        .await
-        .unwrap();
+
+    let mut sub = if opt.use_expr {
+        // declare subscriber
+        let key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+        session.subscribe(&key_expr_ping).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/ping").reliable().await.unwrap()
+    };
+    let mut key_expr_num = 0;
+    if opt.use_expr {
+        key_expr_num = session.declare_expr("/test/pong").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_num).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/pong").await.unwrap();
+        }
+    }
 
     while let Some(sample) = sub.next().await {
-                session
-                    .put("/test/pong", sample)
-                    .congestion_control(CongestionControl::Block)
-                    .await
-                    .unwrap();
+        if opt.use_expr {
+            session
+                .put(key_expr_num, sample)
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
+        } else {
+            session
+                .put("/test/pong", sample)
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
+        }
     }
 
     // Stop forever

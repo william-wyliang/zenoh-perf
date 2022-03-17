@@ -61,12 +61,6 @@ name = "r_ping"
 name = "r_pong"
 
 [[bin]]
-name = "zn_ping"
-
-[[bin]]
-name = "zn_pong"
-
-[[bin]]
 name = "z_ping"
 
 [[bin]]

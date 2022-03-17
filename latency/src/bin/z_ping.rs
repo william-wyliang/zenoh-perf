@@ -12,11 +12,11 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::stream::StreamExt;
-use async_std::sync::{Arc, Barrier, Mutex};
+use async_std::sync::{Arc, Mutex};
 use async_std::task;
+use clap::Parser;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use clap::Parser;
 use zenoh::config::Config;
 use zenoh::net::protocol::core::WhatAmI;
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
@@ -24,86 +24,97 @@ use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::prelude::*;
 use zenoh::publication::CongestionControl;
 
-
 #[derive(Debug, Parser)]
 #[clap(name = "z_ping")]
 struct Opt {
     /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     locator: Option<String>,
-    
+
     /// peer, router, or client
     #[clap(short, long)]
     mode: String,
-   
-    /// payload size (bytes) 
+
+    /// payload size (bytes)
     #[clap(short, long)]
     payload: usize,
-    
+
     #[clap(short, long)]
     name: String,
-    
+
     #[clap(short, long)]
     scenario: String,
-    
+
     /// interval of sending message (sec)
     #[clap(short, long)]
     interval: f64,
-    
+
     /// spawn a task to receive or not
     #[clap(long = "parallel")]
     parallel: bool,
+
+    /// declare a numerical ID for key expression
+    #[clap(long)]
+    use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
 
 async fn parallel(opt: Opt, config: Config) {
     let session = zenoh::open(config).await.unwrap();
     let session = Arc::new(session);
 
+    let mut sub = if opt.use_expr {
+        // declare subscriber
+        let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        session.subscribe(&key_expr_pong).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/pong").reliable().await.unwrap()
+    };
+    let mut key_expr_num = 0;
+    if opt.use_expr {
+        key_expr_num = session.declare_expr("/test/ping").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_num).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/ping").await.unwrap();
+        }
+    }
+
     // The hashmap with the pings
     let pending = Arc::new(Mutex::new(HashMap::<u64, Instant>::new()));
-    let barrier = Arc::new(Barrier::new(2));
 
     let c_pending = pending.clone();
-    let c_barrier = barrier.clone();
-    let c_session = session.clone();
     let scenario = opt.scenario;
     let name = opt.name;
     let interval = opt.interval;
     task::spawn(async move {
-        let mut sub = c_session
-            .subscribe("/test/pong/")
-            .reliable() //Default of the reliability is `best_effort`
-            .await
-            .unwrap();
-
-        // Notify that the subscriber has been created
-        c_barrier.wait().await;
-
         while let Some(sample) = sub.next().await {
-                  let mut payload_reader = sample.value.payload.reader();   
-                  let mut count_bytes = [0u8; 8];
-                  if payload_reader.read_exact(&mut count_bytes){
-                    let count = u64::from_le_bytes(count_bytes);
+            let mut payload_reader = sample.value.payload.reader();
+            let mut count_bytes = [0u8; 8];
+            if payload_reader.read_exact(&mut count_bytes) {
+                let count = u64::from_le_bytes(count_bytes);
 
-                    let instant = c_pending.lock().await.remove(&count).unwrap();
-                    println!(
-                        "zenoh,{},latency.parallel,{},{},{},{},{}",
-                        scenario,
-                        name,
-                        sample.value.payload.len(),
-                        interval,
-                        count,
-                        instant.elapsed().as_micros()
-                    );
-                }  else {
-                    panic!("Fail to fill the buffer");
-                }
+                let instant = c_pending.lock().await.remove(&count).unwrap();
+                println!(
+                    "zenoh,{},latency.parallel,{},{},{},{},{}",
+                    scenario,
+                    name,
+                    sample.value.payload.len(),
+                    interval,
+                    count,
+                    instant.elapsed().as_micros()
+                );
+            } else {
+                panic!("Fail to fill the buffer");
+            }
         }
         panic!("Invalid value!");
     });
-
-    // Wait for the subscriber to be declared
-    barrier.wait().await;
 
     let mut count: u64 = 0;
     loop {
@@ -112,12 +123,19 @@ async fn parallel(opt: Opt, config: Config) {
         payload[0..8].copy_from_slice(&count_bytes);
 
         pending.lock().await.insert(count, Instant::now());
-
-        session
-            .put("/test/ping", payload)
-            .congestion_control(CongestionControl::Block)
-            .await
-            .unwrap();
+        if opt.use_expr {
+            session
+                .put(key_expr_num, payload)
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
+        } else {
+            session
+                .put("/test/ping", payload)
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
+        }
 
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;
@@ -131,11 +149,24 @@ async fn single(opt: Opt, config: Config) {
     let name = opt.name;
     let interval = opt.interval;
 
-    let mut sub = session
-        .subscribe("/test/pong/")
-        .reliable()
-        .await
-        .unwrap();
+    let mut sub = if opt.use_expr {
+        // declare subscriber
+        let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        session.subscribe(&key_expr_pong).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/pong").reliable().await.unwrap()
+    };
+    let mut key_expr_num = 0;
+    if opt.use_expr {
+        key_expr_num = session.declare_expr("/test/ping").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_num).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/ping").await.unwrap();
+        }
+    }
 
     let mut count: u64 = 0;
     loop {
@@ -144,33 +175,42 @@ async fn single(opt: Opt, config: Config) {
         payload[0..8].copy_from_slice(&count_bytes);
 
         let now = Instant::now();
-        session
-            .put("/test/ping", payload)
-            .congestion_control(CongestionControl::Block)
-            .await
-            .unwrap();
 
-        match sub.next().await{
+        if opt.use_expr {
+            session
+                .put(key_expr_num, payload)
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
+        } else {
+            session
+                .put("/test/ping", payload)
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
+        }
+
+        match sub.next().await {
             Some(sample) => {
                 let mut payload_reader = sample.value.payload.reader();
                 let mut count_bytes = [0u8; 8];
                 if payload_reader.read_exact(&mut count_bytes) {
                     let s_count = u64::from_le_bytes(count_bytes);
 
-                println!(
-                    "zenoh,{},latency.sequential,{},{},{},{},{}",
-                    scenario,
-                    name,
-                    sample.value.payload.len(),
-                    interval,
-                    s_count,
-                    now.elapsed().as_micros()
-                );
-            } else {
-                panic!("Fail to fill the buffer");
+                    println!(
+                        "zenoh,{},latency.sequential,{},{},{},{},{}",
+                        scenario,
+                        name,
+                        sample.value.payload.len(),
+                        interval,
+                        s_count,
+                        now.elapsed().as_micros()
+                    );
+                } else {
+                    panic!("Fail to fill the buffer");
+                }
             }
-        }
-           _ => panic!("Invalid value"),
+            _ => panic!("Invalid value"),
         }
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;
