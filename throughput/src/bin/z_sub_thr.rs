@@ -24,9 +24,9 @@ use zenoh_protocol_core::{EndPoint, WhatAmI};
 #[derive(Debug, Parser)]
 #[clap(name = "z_sub_thr")]
 struct Opt {
-    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
-    locator: Vec<EndPoint>,
+    endpoint: Vec<EndPoint>,
 
     /// peer, router, or client
     #[clap(short, long, possible_values = ["peer", "client"])]
@@ -64,7 +64,7 @@ async fn main() {
 
     // Parse the args
     let Opt {
-        locator,
+        endpoint,
         mode,
         payload,
         name,
@@ -83,8 +83,8 @@ async fn main() {
         config.set_mode(Some(mode)).unwrap();
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
         match mode {
-            WhatAmI::Peer => config.listen.endpoints.extend(locator),
-            WhatAmI::Client => config.connect.endpoints.extend(locator),
+            WhatAmI::Peer => config.listen.endpoints.extend(endpoint),
+            WhatAmI::Client => config.connect.endpoints.extend(endpoint),
             _ => panic!("Unsupported mode: {}", mode),
         };
         config

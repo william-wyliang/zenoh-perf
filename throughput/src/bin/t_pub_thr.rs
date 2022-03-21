@@ -65,9 +65,9 @@ impl TransportEventHandler for MySH {
 #[derive(Debug, Parser)]
 #[clap(name = "s_pub_thr")]
 struct Opt {
-    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
-    locator: Vec<EndPoint>,
+    endpoint: Vec<EndPoint>,
 
     /// peer, router, or client
     #[clap(short, long)]
@@ -93,7 +93,7 @@ async fn main() {
 
     // Parse the args
     let Opt {
-        locator,
+        endpoint,
         mode,
         payload,
         print,
@@ -113,7 +113,7 @@ async fn main() {
 
     // Connect to publisher
     let mut transports: Vec<TransportUnicast> = vec![];
-    for e in locator {
+    for e in endpoint {
         let t = manager.open_transport_unicast(e.clone()).await.unwrap();
         transports.push(t);
     }

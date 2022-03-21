@@ -120,9 +120,9 @@ impl TransportPeerEventHandler for MyMH {
 #[derive(Debug, Parser)]
 #[clap(name = "s_sub_thr")]
 struct Opt {
-    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
-    locator: Vec<EndPoint>,
+    endpoint: Vec<EndPoint>,
 
     /// peer, router, or client
     #[clap(short, long)]
@@ -150,7 +150,7 @@ async fn main() {
 
     // Parse the args
     let Opt {
-        locator,
+        endpoint,
         mode,
         payload,
         name,
@@ -171,11 +171,11 @@ async fn main() {
     let manager = builder.build(handler).unwrap();
 
     if mode == WhatAmI::Peer {
-        for e in locator {
+        for e in endpoint {
             manager.add_listener(e.clone()).await.unwrap();
         }
     } else {
-        for e in locator {
+        for e in endpoint {
             let _t = manager.open_transport_unicast(e.clone()).await.unwrap();
         }
     }
