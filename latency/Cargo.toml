@@ -45,32 +45,3 @@ zenoh-core = "0.6.0-dev"
 zenoh-cfg-properties = "0.6.0-dev"
 zenoh-protocol-core = "0.6.0-dev"
 
-[[bin]]
-name = "t_pub_delay"
-
-[[bin]]
-name = "t_sub_delay"
-
-[[bin]]
-name = "t_ping"
-
-[[bin]]
-name = "t_pong"
-
-[[bin]]
-name = "r_ping"
-
-[[bin]]
-name = "r_pong"
-
-[[bin]]
-name = "zn_ping"
-
-[[bin]]
-name = "zn_pong"
-
-[[bin]]
-name = "z_ping"
-
-[[bin]]
-name = "z_pong"
