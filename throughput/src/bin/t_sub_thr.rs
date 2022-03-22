@@ -11,20 +11,21 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::future;
-use async_std::sync::Arc;
-use async_std::task;
-use std::any::Any;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::whatami;
-use zenoh::net::protocol::proto::ZenohMessage;
-use zenoh::net::transport::*;
-use zenoh_util::core::ZResult;
-use zenoh_util::properties::{IntKeyProperties, Properties};
+use async_std::{future, sync::Arc, task};
+use clap::Parser;
+use std::{
+    any::Any,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    time::{Duration, Instant},
+};
+use zenoh::config::{Config, WhatAmI};
+use zenoh::net::{
+    link::{EndPoint, Link},
+    protocol::proto::ZenohMessage,
+    transport::*,
+};
+use zenoh_core::zresult::ZResult;
 
 // Transport Handler for the peer
 struct MySH {
@@ -116,20 +117,29 @@ impl TransportPeerEventHandler for MyMH {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "s_sub_thr")]
 struct Opt {
-    #[structopt(short = "e", long = "endpoint")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     endpoint: Vec<EndPoint>,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// peer, router, or client
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -139,37 +149,33 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        endpoint,
+        mode,
+        payload,
+        name,
+        scenario,
+        config,
+    } = Opt::parse();
 
-    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
-
+    // Setup TransportManager
     let count = Arc::new(AtomicUsize::new(0));
-    let bc = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            let properties = Properties::from(config);
-            let int_props = IntKeyProperties::from(properties);
-            TransportManagerConfig::builder()
-                .from_config(&int_props)
-                .await
-                .unwrap()
-        }
-        None => TransportManagerConfig::builder().whatami(whatami::ROUTER),
+    let builder = match config {
+        Some(path) => TransportManager::builder()
+            .from_config(&Config::from_file(path).unwrap())
+            .await
+            .unwrap(),
+        None => TransportManager::builder().whatami(WhatAmI::Router),
     };
-    let config = bc.build(Arc::new(MySH::new(
-        opt.scenario,
-        opt.name,
-        opt.payload,
-        count,
-    )));
-    let manager = TransportManager::new(config);
+    let handler = Arc::new(MySH::new(scenario, name, payload, count));
+    let manager = builder.build(handler).unwrap();
 
-    if whatami == whatami::PEER {
-        for e in opt.endpoint.iter() {
+    if mode == WhatAmI::Peer {
+        for e in endpoint {
             manager.add_listener(e.clone()).await.unwrap();
         }
     } else {
-        for e in opt.endpoint.iter() {
+        for e in endpoint {
             let _t = manager.open_transport_unicast(e.clone()).await.unwrap();
         }
     }

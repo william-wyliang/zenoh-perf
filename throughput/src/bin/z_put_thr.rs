@@ -15,26 +15,22 @@ use async_std::{sync::Arc, task};
 use clap::Parser;
 use std::{
     path::PathBuf,
-    str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
-use zenoh::{
-    config::{whatami::WhatAmI, Config},
-    prelude::{Locator, Value},
-    publication::CongestionControl,
-};
+use zenoh::{config::Config, prelude::Value};
+use zenoh_protocol_core::{CongestionControl, EndPoint, WhatAmI};
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_put_thr")]
 struct Opt {
-    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
-    locator: Vec<Locator>,
+    endpoint: Vec<EndPoint>,
 
     /// peer, router, or client
     #[clap(short, long)]
-    mode: String,
+    mode: WhatAmI,
 
     /// payload size (bytes)
     #[clap(short, long)]
@@ -45,7 +41,7 @@ struct Opt {
     print: bool,
 
     /// configuration file (json5 or yaml)
-    #[clap(long = "conf")]
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 
     /// declare a numerical Id for the publisher's key expression
@@ -66,7 +62,7 @@ async fn main() {
 
     // Parse the args
     let Opt {
-        locator,
+        endpoint,
         mode,
         payload,
         print,
@@ -80,12 +76,10 @@ async fn main() {
         } else {
             Config::default()
         };
-        config
-            .set_mode(Some(WhatAmI::from_str(&mode).unwrap()))
-            .unwrap();
+        config.set_mode(Some(mode)).unwrap();
         config.set_add_timestamp(Some(false)).unwrap();
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
-        config.peers.extend(locator);
+        config.connect.endpoints.extend(endpoint);
         config
     };
 

@@ -39,36 +39,9 @@ log = "0.4.14"
 rand = "0.8.5"
 slab = "0.4.5"
 json5 = "0.4.1"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54" }
+zenoh = { version="0.6.0-dev", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = "0.6.0-dev"
+zenoh-core = "0.6.0-dev"
+zenoh-cfg-properties = "0.6.0-dev"
+zenoh-protocol-core = "0.6.0-dev"
 clap = { version = "3.1.5", features = ["derive"] }
-
-[[bin]]
-name = "t_pub_thr"
-
-[[bin]]
-name = "t_sub_thr"
-
-[[bin]]
-name = "t_pubsub_thr"
-
-[[bin]]
-name = "t_router_thr"
-
-[[bin]]
-name = "t_sink_tcp"
-
-[[bin]]
-name = "t_sink_udp"
-
-[[bin]]
-name = "r_pub_thr"
-
-[[bin]]
-name = "r_sub_thr"
-
-[[bin]]
-name = "z_put_thr"
-
-[[bin]]
-name = "z_sub_thr"
