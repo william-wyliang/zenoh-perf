@@ -18,22 +18,21 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use clap::Parser;
 use zenoh::config::Config;
-use zenoh::net::protocol::core::WhatAmI;
+use zenoh_protocol_core::{WhatAmI, CongestionControl};
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
 use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::prelude::*;
-use zenoh::publication::CongestionControl;
 
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_ping")]
 struct Opt {
-    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
-    locator: Option<String>,
+    endpoint: Option<String>,
     
-    /// peer, router, or client
-    #[clap(short, long)]
+    /// peer or client
+    #[clap(short, long, possible_values = ["peer", "client"])]
     mode: String,
    
     /// payload size (bytes) 
@@ -192,10 +191,11 @@ async fn main() {
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
 
-    if let Some(ref l) = opt.locator {
+    if let Some(ref l) = opt.endpoint {
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
         config
-            .peers
+            .connect
+            .endpoints
             .extend(l.split(',').map(|v| v.parse().unwrap()));
     } else {
         config.scouting.multicast.set_enabled(Some(true)).unwrap();
