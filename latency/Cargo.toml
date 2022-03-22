@@ -39,8 +39,11 @@ log = "0.4.14"
 rand = "0.8.3"
 slab = "0.4.2"
 clap = { version = "3.1.5", features = ["derive"] }
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54" }
+zenoh = { version="0.6.0-dev", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = "0.6.0-dev"
+zenoh-core = "0.6.0-dev"
+zenoh-cfg-properties = "0.6.0-dev"
+zenoh-protocol-core = "0.6.0-dev"
 
 [[bin]]
 name = "t_pub_delay"
