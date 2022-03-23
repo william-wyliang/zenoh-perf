@@ -11,25 +11,29 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::any::Any;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
-use structopt::StructOpt;
-use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::{
-    whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
+use async_std::{sync::Arc, task};
+use clap::Parser;
+use std::{
+    any::Any,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    time::Duration,
 };
-use zenoh::net::protocol::io::ZBuf;
-use zenoh::net::protocol::proto::ZenohMessage;
-use zenoh::net::transport::{
-    TransportEventHandler, TransportManager, TransportManagerConfig, TransportMulticast,
-    TransportMulticastEventHandler, TransportPeer, TransportPeerEventHandler, TransportUnicast,
+use zenoh::{
+    config::{Config, WhatAmI},
+    net::{
+        link::{EndPoint, Link},
+        protocol::core::{Channel, CongestionControl, Priority, Reliability},
+        protocol::{io::ZBuf, proto::ZenohMessage},
+        transport::{
+            TransportEventHandler, TransportManager, TransportMulticast,
+            TransportMulticastEventHandler, TransportPeer, TransportPeerEventHandler,
+            TransportUnicast,
+        },
+    },
+    prelude::KeyExpr,
 };
-use zenoh_util::core::ZResult;
-use zenoh_util::properties::{IntKeyProperties, Properties};
+use zenoh_core::zresult::ZResult;
 
 // Transport Handler for the peer
 struct MySH {
@@ -108,24 +112,37 @@ impl TransportPeerEventHandler for MyMH {
     }
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 #[structopt(name = "s_pubsub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "listen")]
+    /// which endpoints to listen on. e.g. --listen tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     listen: Vec<EndPoint>,
-    #[structopt(short = "c", long = "connect")]
+
+    /// which endpoints to connect to., e.g. --connect tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     connect: Vec<EndPoint>,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// peer, router, or client
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(short = "t", long = "print")]
+
+    /// print the counter
+    #[clap(short = 't', long)]
     print: bool,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -135,38 +152,35 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
-
-    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
+    let Opt {
+        listen,
+        connect,
+        mode,
+        payload,
+        name,
+        scenario,
+        print,
+        config,
+    } = Opt::parse();
 
     let count = Arc::new(AtomicUsize::new(0));
-    let bc = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            let properties = Properties::from(config);
-            let int_props = IntKeyProperties::from(properties);
-            TransportManagerConfig::builder()
-                .from_config(&int_props)
-                .await
-                .unwrap()
-        }
-        None => TransportManagerConfig::builder().whatami(whatami),
+    let builder = match config {
+        Some(path) => TransportManager::builder()
+            .from_config(&Config::from_file(path).unwrap())
+            .await
+            .unwrap(),
+        None => TransportManager::builder().whatami(mode),
     };
-    let config = bc.build(Arc::new(MySH::new(
-        opt.scenario,
-        opt.name,
-        opt.payload,
-        count,
-    )));
-    let manager = TransportManager::new(config);
+    let handler = Arc::new(MySH::new(scenario, name, payload, count));
+    let manager = builder.build(handler).unwrap();
 
     // Connect to publisher
-    for e in opt.listen.iter() {
+    for e in listen {
         let _ = manager.add_listener(e.clone()).await.unwrap();
     }
 
     let mut transports: Vec<TransportUnicast> = vec![];
-    for e in opt.connect.iter() {
+    for e in connect {
         let t = loop {
             match manager.open_transport_unicast(e.clone()).await {
                 Ok(t) => break t,
@@ -182,15 +196,15 @@ async fn main() {
         reliability: Reliability::Reliable,
     };
     let congestion_control = CongestionControl::Block;
-    let key = ResKey::RName("test".to_string());
+    let key = KeyExpr::from("test");
     let info = None;
-    let payload = ZBuf::from(vec![0u8; opt.payload]);
+    let payload = ZBuf::from(vec![0u8; payload]);
     let reply_context = None;
     let routing_context = None;
     let attachment = None;
 
     let count = Arc::new(AtomicUsize::new(0));
-    if opt.print {
+    if print {
         let c_count = count.clone();
         task::spawn(async move {
             loop {
