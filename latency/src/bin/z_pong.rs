@@ -15,18 +15,17 @@ use async_std::future;
 use async_std::stream::StreamExt;
 use clap::Parser;
 use zenoh::config::Config;
-use zenoh::net::protocol::core::WhatAmI;
-use zenoh::publication::CongestionControl;
+use zenoh_protocol_core::{CongestionControl, WhatAmI};
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_pong")]
 struct Opt {
-    /// locator(s), e.g. --locator tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
-    locator: String,
+    endpoint: String,
     
-    /// peer, router, or client
-    #[clap(short, long)]
+    /// peer or client
+    #[clap(short, long, possible_values = ["peer", "client"])]
     mode: String,
 }
 
@@ -43,14 +42,16 @@ async fn main() {
         "peer" => {
             config.set_mode(Some(WhatAmI::Peer)).unwrap();
             config
-                .listeners
-                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+                .listen
+                .endpoints
+                .extend(opt.endpoint.split(',').map(|v| v.parse().unwrap()));
         }
         "client" => {
             config.set_mode(Some(WhatAmI::Client)).unwrap();
             config
-                .peers
-                .extend(opt.locator.split(',').map(|v| v.parse().unwrap()));
+                .connect
+                .endpoints
+                .extend(opt.endpoint.split(',').map(|v| v.parse().unwrap()));
         }
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
