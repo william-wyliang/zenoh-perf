@@ -76,6 +76,11 @@ async fn parallel(opt: Opt, config: Config) {
     } else {
         session.subscribe("/test/pong").reliable().await.unwrap()
     };
+
+    let mut key_expr_ping = 0;
+    if opt.use_expr {
+        key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+    }
     task::spawn(async move {
 
         while let Some(sample) = sub.next().await {
@@ -109,8 +114,12 @@ async fn parallel(opt: Opt, config: Config) {
 
         pending.lock().await.insert(count, Instant::now());
 
-        session
-            .put("/test/ping", payload)
+        let writer = if opt.use_expr {
+            session.put(key_expr_ping, payload)
+        } else {
+            session.put("/test/ping", payload)
+        };
+        writer
             .congestion_control(CongestionControl::Block)
             .await
             .unwrap();
@@ -133,7 +142,11 @@ async fn single(opt: Opt, config: Config) {
     } else {
         session.subscribe("/test/pong").reliable().await.unwrap()
     };
- 
+
+    let mut key_expr_ping = 0;
+    if opt.use_expr {
+        key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+    }
     let mut count: u64 = 0;
     loop {
         let count_bytes: [u8; 8] = count.to_le_bytes();
@@ -141,8 +154,12 @@ async fn single(opt: Opt, config: Config) {
         payload[0..8].copy_from_slice(&count_bytes);
 
         let now = Instant::now();
-        session
-            .put("/test/ping", payload)
+        let writer = if opt.use_expr {
+            session.put(key_expr_ping, payload)
+        } else {
+            session.put("/test/ping", payload)
+        };
+        writer
             .congestion_control(CongestionControl::Block)
             .await
             .unwrap();

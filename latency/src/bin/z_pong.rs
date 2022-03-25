@@ -68,10 +68,18 @@ async fn main() {
     } else {
         session.subscribe("/test/ping").reliable().await.unwrap()
     };
+    let mut key_expr_pong = 0;
+    if opt.use_expr {
+        key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+    }
 
     while let Some(sample) = sub.next().await {
-                session
-                    .put("/test/pong", sample)
+                let writer = if opt.use_expr {
+                    session.put(key_expr_pong, sample)
+                } else {
+                    session.put("/test/pong", sample)
+                };
+                writer
                     .congestion_control(CongestionControl::Block)
                     .await
                     .unwrap();
