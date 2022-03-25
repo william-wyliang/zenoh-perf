@@ -12,7 +12,7 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::stream::StreamExt;
-use async_std::sync::{Arc, Barrier, Mutex};
+use async_std::sync::{Arc, Mutex};
 use async_std::task;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -52,6 +52,10 @@ struct Opt {
     /// spawn a task to receive or not
     #[clap(long = "parallel")]
     parallel: bool,
+
+    /// declare a numerical ID for key expression
+    #[clap(long)]
+    use_expr: bool,
 }
 
 async fn parallel(opt: Opt, config: Config) {
@@ -60,23 +64,19 @@ async fn parallel(opt: Opt, config: Config) {
 
     // The hashmap with the pings
     let pending = Arc::new(Mutex::new(HashMap::<u64, Instant>::new()));
-    let barrier = Arc::new(Barrier::new(2));
 
     let c_pending = pending.clone();
-    let c_barrier = barrier.clone();
-    let c_session = session.clone();
     let scenario = opt.scenario;
     let name = opt.name;
     let interval = opt.interval;
-    task::spawn(async move {
-        let mut sub = c_session
-            .subscribe("/test/pong/")
-            .reliable() //Default of the reliability is `best_effort`
-            .await
-            .unwrap();
 
-        // Notify that the subscriber has been created
-        c_barrier.wait().await;
+    let mut sub = if opt.use_expr {     // Declare the subscriber
+        let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        session.subscribe(key_expr_pong).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/pong").reliable().await.unwrap()
+    };
+    task::spawn(async move {
 
         while let Some(sample) = sub.next().await {
                   let mut payload_reader = sample.value.payload.reader();   
@@ -100,9 +100,6 @@ async fn parallel(opt: Opt, config: Config) {
         }
         panic!("Invalid value!");
     });
-
-    // Wait for the subscriber to be declared
-    barrier.wait().await;
 
     let mut count: u64 = 0;
     loop {
@@ -130,12 +127,13 @@ async fn single(opt: Opt, config: Config) {
     let name = opt.name;
     let interval = opt.interval;
 
-    let mut sub = session
-        .subscribe("/test/pong/")
-        .reliable()
-        .await
-        .unwrap();
-
+    let mut sub = if opt.use_expr {     // Declare the subscriber
+        let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        session.subscribe(key_expr_pong).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/pong").reliable().await.unwrap()
+    };
+ 
     let mut count: u64 = 0;
     loop {
         let count_bytes: [u8; 8] = count.to_le_bytes();
