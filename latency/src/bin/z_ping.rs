@@ -56,6 +56,10 @@ struct Opt {
     /// declare a numerical ID for key expression
     #[clap(long)]
     use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
 
 async fn parallel(opt: Opt, config: Config) {
@@ -80,6 +84,13 @@ async fn parallel(opt: Opt, config: Config) {
     let mut key_expr_ping = 0;
     if opt.use_expr {
         key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_ping).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/ping").await.unwrap();
+        }
     }
     task::spawn(async move {
 
@@ -146,6 +157,13 @@ async fn single(opt: Opt, config: Config) {
     let mut key_expr_ping = 0;
     if opt.use_expr {
         key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_ping).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/ping").await.unwrap();
+        }
     }
     let mut count: u64 = 0;
     loop {

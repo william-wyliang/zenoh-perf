@@ -31,6 +31,10 @@ struct Opt {
     /// declare a numerical ID for key expression
     #[clap(long)]
     use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
 
 #[async_std::main]
@@ -71,6 +75,13 @@ async fn main() {
     let mut key_expr_pong = 0;
     if opt.use_expr {
         key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_pong).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/pong").await.unwrap();
+        }
     }
 
     while let Some(sample) = sub.next().await {
