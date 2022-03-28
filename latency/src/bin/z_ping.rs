@@ -61,6 +61,9 @@ struct Opt {
     declare_publication: bool,
 }
 
+const KEY_EXPR_PING: &str = "/test/z_ping";
+const KEY_EXPR_PONG: &str = "/test/z_pong";
+
 async fn parallel(opt: Opt, config: Config) {
     let session = zenoh::open(config).await.unwrap();
     let session = Arc::new(session);
@@ -75,21 +78,21 @@ async fn parallel(opt: Opt, config: Config) {
 
     let mut sub = if opt.use_expr {
         // Declare the subscriber
-        let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        let key_expr_pong = session.declare_expr(KEY_EXPR_PONG).await.unwrap();
         session.subscribe(key_expr_pong).reliable().await.unwrap()
     } else {
-        session.subscribe("/test/pong").reliable().await.unwrap()
+        session.subscribe(KEY_EXPR_PONG).reliable().await.unwrap()
     };
 
     let mut key_expr_ping = 0;
     if opt.use_expr {
-        key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+        key_expr_ping = session.declare_expr(KEY_EXPR_PING).await.unwrap();
         if opt.declare_publication {
             session.declare_publication(key_expr_ping).await.unwrap();
         }
     } else {
         if opt.declare_publication {
-            session.declare_publication("/test/ping").await.unwrap();
+            session.declare_publication(KEY_EXPR_PING).await.unwrap();
         }
     }
     task::spawn(async move {
@@ -127,7 +130,7 @@ async fn parallel(opt: Opt, config: Config) {
         let writer = if opt.use_expr {
             session.put(key_expr_ping, payload)
         } else {
-            session.put("/test/ping", payload)
+            session.put(KEY_EXPR_PING, payload)
         };
         writer
             .congestion_control(CongestionControl::Block)
