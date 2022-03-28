@@ -23,7 +23,7 @@ struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     endpoint: String,
-    
+
     /// peer or client
     #[clap(short, long, possible_values = ["peer", "client"])]
     mode: String,
@@ -66,7 +66,8 @@ async fn main() {
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
 
     let session = zenoh::open(config).await.unwrap();
-    let mut sub = if opt.use_expr {     // Declare the subscriber
+    let mut sub = if opt.use_expr {
+        // Declare the subscriber
         let key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
         session.subscribe(key_expr_ping).reliable().await.unwrap()
     } else {
@@ -85,15 +86,15 @@ async fn main() {
     }
 
     while let Some(sample) = sub.next().await {
-                let writer = if opt.use_expr {
-                    session.put(key_expr_pong, sample)
-                } else {
-                    session.put("/test/pong", sample)
-                };
-                writer
-                    .congestion_control(CongestionControl::Block)
-                    .await
-                    .unwrap();
+        let writer = if opt.use_expr {
+            session.put(key_expr_pong, sample)
+        } else {
+            session.put("/test/pong", sample)
+        };
+        writer
+            .congestion_control(CongestionControl::Block)
+            .await
+            .unwrap();
     }
 
     // Stop forever

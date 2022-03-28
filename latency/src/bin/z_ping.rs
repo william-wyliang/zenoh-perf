@@ -14,15 +14,14 @@
 use async_std::stream::StreamExt;
 use async_std::sync::{Arc, Mutex};
 use async_std::task;
+use clap::Parser;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use clap::Parser;
 use zenoh::config::Config;
-use zenoh_protocol_core::{WhatAmI, CongestionControl};
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
 use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::prelude::*;
-
+use zenoh_protocol_core::{CongestionControl, WhatAmI};
 
 #[derive(Debug, Parser)]
 #[clap(name = "z_ping")]
@@ -30,25 +29,25 @@ struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     endpoint: Option<String>,
-    
+
     /// peer or client
     #[clap(short, long, possible_values = ["peer", "client"])]
     mode: String,
-   
-    /// payload size (bytes) 
+
+    /// payload size (bytes)
     #[clap(short, long)]
     payload: usize,
-    
+
     #[clap(short, long)]
     name: String,
-    
+
     #[clap(short, long)]
     scenario: String,
-    
+
     /// interval of sending message (sec)
     #[clap(short, long)]
     interval: f64,
-    
+
     /// spawn a task to receive or not
     #[clap(long = "parallel")]
     parallel: bool,
@@ -74,7 +73,8 @@ async fn parallel(opt: Opt, config: Config) {
     let name = opt.name;
     let interval = opt.interval;
 
-    let mut sub = if opt.use_expr {     // Declare the subscriber
+    let mut sub = if opt.use_expr {
+        // Declare the subscriber
         let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
         session.subscribe(key_expr_pong).reliable().await.unwrap()
     } else {
@@ -93,26 +93,25 @@ async fn parallel(opt: Opt, config: Config) {
         }
     }
     task::spawn(async move {
-
         while let Some(sample) = sub.next().await {
-                  let mut payload_reader = sample.value.payload.reader();   
-                  let mut count_bytes = [0u8; 8];
-                  if payload_reader.read_exact(&mut count_bytes){
-                    let count = u64::from_le_bytes(count_bytes);
+            let mut payload_reader = sample.value.payload.reader();
+            let mut count_bytes = [0u8; 8];
+            if payload_reader.read_exact(&mut count_bytes) {
+                let count = u64::from_le_bytes(count_bytes);
 
-                    let instant = c_pending.lock().await.remove(&count).unwrap();
-                    println!(
-                        "zenoh,{},latency.parallel,{},{},{},{},{}",
-                        scenario,
-                        name,
-                        sample.value.payload.len(),
-                        interval,
-                        count,
-                        instant.elapsed().as_micros()
-                    );
-                }  else {
-                    panic!("Fail to fill the buffer");
-                }
+                let instant = c_pending.lock().await.remove(&count).unwrap();
+                println!(
+                    "zenoh,{},latency.parallel,{},{},{},{},{}",
+                    scenario,
+                    name,
+                    sample.value.payload.len(),
+                    interval,
+                    count,
+                    instant.elapsed().as_micros()
+                );
+            } else {
+                panic!("Fail to fill the buffer");
+            }
         }
         panic!("Invalid value!");
     });
@@ -147,7 +146,8 @@ async fn single(opt: Opt, config: Config) {
     let name = opt.name;
     let interval = opt.interval;
 
-    let mut sub = if opt.use_expr {     // Declare the subscriber
+    let mut sub = if opt.use_expr {
+        // Declare the subscriber
         let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
         session.subscribe(key_expr_pong).reliable().await.unwrap()
     } else {
@@ -182,27 +182,27 @@ async fn single(opt: Opt, config: Config) {
             .await
             .unwrap();
 
-        match sub.next().await{
+        match sub.next().await {
             Some(sample) => {
                 let mut payload_reader = sample.value.payload.reader();
                 let mut count_bytes = [0u8; 8];
                 if payload_reader.read_exact(&mut count_bytes) {
                     let s_count = u64::from_le_bytes(count_bytes);
 
-                println!(
-                    "zenoh,{},latency.sequential,{},{},{},{},{}",
-                    scenario,
-                    name,
-                    sample.value.payload.len(),
-                    interval,
-                    s_count,
-                    now.elapsed().as_micros()
-                );
-            } else {
-                panic!("Fail to fill the buffer");
+                    println!(
+                        "zenoh,{},latency.sequential,{},{},{},{},{}",
+                        scenario,
+                        name,
+                        sample.value.payload.len(),
+                        interval,
+                        s_count,
+                        now.elapsed().as_micros()
+                    );
+                } else {
+                    panic!("Fail to fill the buffer");
+                }
             }
-        }
-           _ => panic!("Invalid value"),
+            _ => panic!("Invalid value"),
         }
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;
