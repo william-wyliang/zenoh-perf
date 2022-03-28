@@ -27,6 +27,10 @@ struct Opt {
     /// peer or client
     #[clap(short, long, possible_values = ["peer", "client"])]
     mode: String,
+
+    /// declare a numerical ID for key expression
+    #[clap(long)]
+    use_expr: bool,
 }
 
 #[async_std::main]
@@ -58,15 +62,24 @@ async fn main() {
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
 
     let session = zenoh::open(config).await.unwrap();
-    let mut sub = session
-        .subscribe("/test/ping/")
-        .reliable()
-        .await
-        .unwrap();
+    let mut sub = if opt.use_expr {     // Declare the subscriber
+        let key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+        session.subscribe(key_expr_ping).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/ping").reliable().await.unwrap()
+    };
+    let mut key_expr_pong = 0;
+    if opt.use_expr {
+        key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+    }
 
     while let Some(sample) = sub.next().await {
-                session
-                    .put("/test/pong", sample)
+                let writer = if opt.use_expr {
+                    session.put(key_expr_pong, sample)
+                } else {
+                    session.put("/test/pong", sample)
+                };
+                writer
                     .congestion_control(CongestionControl::Block)
                     .await
                     .unwrap();
