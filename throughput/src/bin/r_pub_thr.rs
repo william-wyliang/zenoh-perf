@@ -11,34 +11,46 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
-use structopt::StructOpt;
-use zenoh::net::protocol::core::{Channel, CongestionControl, Priority, Reliability, ResKey};
-use zenoh::net::protocol::io::ZBuf;
-use zenoh::net::runtime::Runtime;
-use zenoh::net::transport::DummyPrimitives;
-use zenoh::net::transport::Primitives;
-use zenoh_util::properties::config::{
-    ConfigProperties, ZN_ADD_TIMESTAMP_KEY, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
+use async_std::{sync::Arc, task};
+use clap::Parser;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
-use zenoh_util::properties::{IntKeyProperties, Properties};
+use zenoh::{
+    config::Config,
+    net::{
+        protocol::io::ZBuf,
+        runtime::Runtime,
+        transport::{DummyPrimitives, Primitives},
+    },
+};
+use zenoh_protocol_core::{
+    Channel, CongestionControl, EndPoint, KeyExpr, Priority, Reliability, WhatAmI,
+};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "r_pub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "r_pub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
+    endpoint: Vec<EndPoint>,
+
+    /// peer, router, or client
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "t", long = "print")]
+
+    /// print the counter
+    #[clap(short = 't', long)]
     print: bool,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -48,29 +60,34 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        endpoint,
+        mode,
+        payload,
+        print,
+        config,
+    } = Opt::parse();
 
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            let properties = Properties::from(config);
-            IntKeyProperties::from(properties)
-        }
-        None => ConfigProperties::default(),
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            Config::from_file(path).unwrap()
+        } else {
+            Config::default()
+        };
+        config.set_mode(Some(mode)).unwrap();
+        config.set_add_timestamp(Some(false)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config.connect.endpoints.extend(endpoint);
+        config
     };
-    config.insert(ZN_MODE_KEY, opt.mode.clone());
-    config.insert(ZN_ADD_TIMESTAMP_KEY, "false".to_string());
-
-    config.insert(ZN_MULTICAST_SCOUTING_KEY, "false".to_string());
-    config.insert(ZN_PEER_KEY, opt.locator);
 
     let my_primitives = Arc::new(DummyPrimitives::new());
 
-    let runtime = Runtime::new(0u8, config, None).await.unwrap();
+    let runtime = Runtime::new(config).await.unwrap();
     let primitives = runtime.router.new_primitives(my_primitives);
 
     primitives.decl_resource(1, &"/test/thr".to_string().into());
-    let rid = ResKey::RId(1);
+    let rid = KeyExpr::from(1);
     primitives.decl_publisher(&rid, None);
 
     // @TODO: Fix writer starvation in the RwLock and remove this sleep
@@ -82,8 +99,8 @@ async fn main() {
         reliability: Reliability::Reliable,
     };
     let congestion_control = CongestionControl::Block;
-    let payload = ZBuf::from(vec![0u8; opt.payload]);
-    if opt.print {
+    let payload = ZBuf::from(vec![0u8; payload]);
+    if print {
         let count = Arc::new(AtomicUsize::new(0));
         let c_count = count.clone();
         task::spawn(async move {
