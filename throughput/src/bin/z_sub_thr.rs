@@ -11,32 +11,51 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::convert::TryFrom;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::Properties;
-use zenoh::*;
+use async_std::{sync::Arc, task};
+use clap::Parser;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
+};
+use zenoh::{config::Config, prelude::Receiver};
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_sub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
+    endpoint: Vec<EndPoint>,
+
+    /// peer, router, or client
+    #[clap(short, long, possible_values = ["peer", "client"])]
+    mode: WhatAmI,
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
+
+    /// declare a numerical Id for the subscribed key expression
+    #[clap(long)]
+    use_expr: bool,
+
+    /// do not use callback for subscriber
+    #[clap(long)]
+    no_callback: bool,
 }
+
+const KEY_EXPR: &str = "/test/thr";
 
 #[async_std::main]
 async fn main() {
@@ -44,38 +63,68 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        endpoint,
+        mode,
+        payload,
+        name,
+        scenario,
+        config,
+        use_expr,
+        no_callback,
+    } = Opt::parse();
 
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            Properties::from(config)
-        }
-        None => Properties::default(),
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            Config::from_file(path).unwrap()
+        } else {
+            Config::default()
+        };
+        config.set_mode(Some(mode)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        match mode {
+            WhatAmI::Peer => config.listen.endpoints.extend(endpoint),
+            WhatAmI::Client => config.connect.endpoints.extend(endpoint),
+            _ => panic!("Unsupported mode: {}", mode),
+        };
+        config
     };
-    config.insert("mode".to_string(), opt.mode.clone());
-
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), opt.locator),
-        "client" => config.insert("peer".to_string(), opt.locator),
-        _ => panic!("Unsupported mode: {}", opt.mode),
-    };
-
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let selector = Selector::try_from("/test/thr").unwrap();
 
     let messages = Arc::new(AtomicUsize::new(0));
     let c_messages = messages.clone();
 
-    let _sub = workspace
-        .subscribe_with_callback(&selector, move |_change| {
-            c_messages.fetch_add(1, Ordering::Relaxed);
-        })
-        .await
-        .unwrap();
+    let session = zenoh::open(config).await.unwrap();
+    let sub_builder = if use_expr {
+        session.subscribe(KEY_EXPR)
+    } else {
+        session.subscribe(session.declare_expr(KEY_EXPR).await.unwrap())
+    };
 
+    if no_callback {
+        task::spawn(async move {
+            measure(c_messages, scenario, name, payload).await;
+        });
+
+        let mut subscriber = sub_builder.reliable().push_mode().await.unwrap();
+
+        while subscriber.receiver().recv().is_ok() {
+            messages.fetch_add(1, Ordering::Relaxed);
+        }
+    } else {
+        let _subscriber = sub_builder
+            .callback(move |_| {
+                c_messages.fetch_add(1, Ordering::Relaxed);
+            })
+            .reliable()
+            .push_mode()
+            .await
+            .unwrap();
+
+        measure(messages, scenario, name, payload).await;
+    }
+}
+
+async fn measure(messages: Arc<AtomicUsize>, scenario: String, name: String, payload: usize) {
     loop {
         let now = Instant::now();
         task::sleep(Duration::from_secs(1)).await;
@@ -86,9 +135,9 @@ async fn main() {
             let interval = 1_000_000.0 / elapsed;
             println!(
                 "zenoh,{},throughput,{},{},{}",
-                opt.scenario,
-                opt.name,
-                opt.payload,
+                scenario,
+                name,
+                payload,
                 (c as f64 / interval).floor() as usize
             );
         }

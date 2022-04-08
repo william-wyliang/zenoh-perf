@@ -11,31 +11,49 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::convert::TryFrom;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
-use structopt::StructOpt;
-use zenoh::net::ZBuf;
-use zenoh::Properties;
-use zenoh::*;
+use async_std::{sync::Arc, task};
+use clap::Parser;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
+use zenoh::{config::Config, prelude::Value};
+use zenoh_protocol_core::{CongestionControl, EndPoint, WhatAmI};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_put_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_put_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
+    endpoint: Vec<EndPoint>,
+
+    /// peer, router, or client
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "t", long = "print")]
+
+    /// print the counter
+    #[clap(short = 't', long)]
     print: bool,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
+
+    /// declare a numerical Id for the publisher's key expression
+    #[clap(long)]
+    use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
+
+const KEY_EXPR: &str = "/test/thr";
 
 #[async_std::main]
 async fn main() {
@@ -43,33 +61,48 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
-
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            Properties::from(config)
-        }
-        None => Properties::default(),
+    let Opt {
+        endpoint,
+        mode,
+        payload,
+        print,
+        config,
+        use_expr,
+        declare_publication,
+    } = Opt::parse();
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            Config::from_file(path).unwrap()
+        } else {
+            Config::default()
+        };
+        config.set_mode(Some(mode)).unwrap();
+        config.set_add_timestamp(Some(false)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config.connect.endpoints.extend(endpoint);
+        config
     };
-    config.insert("mode".to_string(), opt.mode.clone());
-    config.insert("add_timestamp".to_string(), "false".to_string());
 
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    config.insert("peer".to_string(), opt.locator);
-
-    let data: ZBuf = (0usize..opt.payload)
+    let value: Value = (0usize..payload)
         .map(|i| (i % 10) as u8)
         .collect::<Vec<u8>>()
         .into();
 
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
+    let session = zenoh::open(config).await.unwrap();
+    let writer = if use_expr {
+        let expr_id = session.declare_expr(KEY_EXPR).await.unwrap();
+        if declare_publication {
+            session.declare_publication(expr_id);
+        }
+        session.put(expr_id, value.clone())
+    } else {
+        if declare_publication {
+            session.declare_publication(KEY_EXPR);
+        }
+        session.put(KEY_EXPR, value.clone())
+    };
 
-    let path: Path = Path::try_from("/test/thr").unwrap();
-    let value = Value::from(data);
-
-    if opt.print {
+    if print {
         let count = Arc::new(AtomicUsize::new(0));
         let c_count = count.clone();
         task::spawn(async move {
@@ -83,12 +116,20 @@ async fn main() {
         });
 
         loop {
-            workspace.put(&path, value.clone()).await.unwrap();
+            writer
+                .clone()
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
             c_count.fetch_add(1, Ordering::Relaxed);
         }
     } else {
         loop {
-            workspace.put(&path, value.clone()).await.unwrap();
+            writer
+                .clone()
+                .congestion_control(CongestionControl::Block)
+                .await
+                .unwrap();
         }
     }
 }

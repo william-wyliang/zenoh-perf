@@ -11,24 +11,28 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::sync::Arc;
-use async_std::task;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::net::protocol::core::{
-    Channel, CongestionControl, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey,
-    SubInfo, SubMode, ZInt,
+use async_std::{sync::Arc, task};
+use clap::Parser;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
 };
-use zenoh::net::protocol::io::ZBuf;
-use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
-use zenoh::net::runtime::Runtime;
-use zenoh::net::transport::Primitives;
-use zenoh_util::properties::config::{
-    ConfigProperties, ZN_LISTENER_KEY, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
+use zenoh::{
+    config::Config,
+    net::{
+        protocol::{
+            io::ZBuf,
+            proto::{DataInfo, RoutingContext},
+        },
+        runtime::Runtime,
+        transport::Primitives,
+    },
 };
-use zenoh_util::properties::{IntKeyProperties, Properties};
+use zenoh_protocol_core::{
+    Channel, CongestionControl, ConsolidationStrategy, EndPoint, KeyExpr, PeerId, QueryTarget,
+    QueryableInfo, Reliability, SubInfo, SubMode, WhatAmI, ZInt,
+};
 
 struct ThroughputPrimitives {
     count: Arc<AtomicUsize>,
@@ -41,51 +45,57 @@ impl ThroughputPrimitives {
 }
 
 impl Primitives for ThroughputPrimitives {
-    fn decl_resource(&self, _rid: ZInt, _reskey: &ResKey) {
+    fn decl_resource(&self, _expr_id: ZInt, _key_expr: &KeyExpr) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn forget_resource(&self, _rid: ZInt) {
+    fn forget_resource(&self, _expr_id: ZInt) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn decl_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {
+    fn decl_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn forget_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {
+    fn forget_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
     fn decl_subscriber(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _sub_info: &SubInfo,
         _routing_context: Option<RoutingContext>,
     ) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn forget_subscriber(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {
+    fn forget_subscriber(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
     fn decl_queryable(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
+        _kind: ZInt,
+        _qable_info: &QueryableInfo,
+        _routing_context: Option<RoutingContext>,
+    ) {
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn forget_queryable(
+        &self,
+        _key_expr: &KeyExpr,
         _kind: ZInt,
         _routing_context: Option<RoutingContext>,
     ) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn forget_queryable(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {
-        self.count.fetch_add(1, Ordering::Relaxed);
-    }
-
     fn send_data(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _payload: ZBuf,
         _channel: Channel,
         _congestion_control: CongestionControl,
@@ -97,11 +107,11 @@ impl Primitives for ThroughputPrimitives {
 
     fn send_query(
         &self,
-        _reskey: &ResKey,
-        _predicate: &str,
+        _key_expr: &KeyExpr,
+        _value_selector: &str,
         _qid: ZInt,
         _target: QueryTarget,
-        _consolidation: QueryConsolidation,
+        _consolidation: ConsolidationStrategy,
         _routing_context: Option<RoutingContext>,
     ) {
         self.count.fetch_add(1, Ordering::Relaxed);
@@ -110,9 +120,9 @@ impl Primitives for ThroughputPrimitives {
     fn send_reply_data(
         &self,
         _qid: ZInt,
-        _source_kind: ZInt,
+        _replier_kind: ZInt,
         _replier_id: PeerId,
-        _reskey: ResKey,
+        _key_expr: KeyExpr,
         _info: Option<DataInfo>,
         _payload: ZBuf,
     ) {
@@ -126,7 +136,7 @@ impl Primitives for ThroughputPrimitives {
     fn send_pull(
         &self,
         _is_final: bool,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _pull_id: ZInt,
         _max_samples: &Option<ZInt>,
     ) {
@@ -138,20 +148,29 @@ impl Primitives for ThroughputPrimitives {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "r_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "r_sub_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
+    endpoint: Vec<EndPoint>,
+
+    /// peer, router, or client
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
@@ -161,40 +180,39 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        endpoint,
+        mode,
+        payload,
+        name,
+        scenario,
+        config,
+    } = Opt::parse();
 
-    let mut config = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            let properties = Properties::from(config);
-            IntKeyProperties::from(properties)
-        }
-        None => ConfigProperties::default(),
+    let config = {
+        let mut config: Config = if let Some(path) = config {
+            Config::from_file(path).unwrap()
+        } else {
+            Config::default()
+        };
+        config.set_mode(Some(mode)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        match mode {
+            WhatAmI::Peer | WhatAmI::Router => config.listen.endpoints.extend(endpoint),
+            WhatAmI::Client => config.connect.endpoints.extend(endpoint),
+        };
+        config
     };
-    config.insert(ZN_MODE_KEY, opt.mode.clone());
-
-    config.insert(ZN_MULTICAST_SCOUTING_KEY, "false".to_string());
-    match opt.mode.as_str() {
-        "peer" | "router" => {
-            config.insert(ZN_LISTENER_KEY, opt.locator);
-        }
-        "client" => {
-            config.insert(ZN_PEER_KEY, opt.locator);
-        }
-        _ => {
-            panic!("Unsupported mode: {}", opt.mode);
-        }
-    }
 
     let count = Arc::new(AtomicUsize::new(0));
     let my_primitives = Arc::new(ThroughputPrimitives::new(count.clone()));
 
-    let runtime = Runtime::new(0u8, config, None).await.unwrap();
+    let runtime = Runtime::new(config).await.unwrap();
     let primitives = runtime.router.new_primitives(my_primitives);
 
     primitives.decl_resource(1, &"/test/thr".to_string().into());
 
-    let rid = ResKey::RId(1);
+    let rid = KeyExpr::from(1);
     let sub_info = SubInfo {
         reliability: Reliability::Reliable,
         mode: SubMode::Push,
@@ -212,9 +230,9 @@ async fn main() {
             let interval = 1_000_000.0 / elapsed;
             println!(
                 "router,{},throughput,{},{},{}",
-                opt.scenario,
-                opt.name,
-                opt.payload,
+                scenario,
+                name,
+                payload,
                 (c as f64 / interval).floor() as usize
             );
         }

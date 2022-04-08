@@ -12,84 +12,113 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::stream::StreamExt;
-use async_std::sync::{Arc, Barrier, Mutex};
+use async_std::sync::{Arc, Mutex};
 use async_std::task;
+use clap::Parser;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::*;
+use zenoh::config::Config;
+use zenoh::net::protocol::io::reader::{HasReader, Reader};
+use zenoh::net::protocol::io::SplitBuffer;
+use zenoh::prelude::*;
+use zenoh_protocol_core::{CongestionControl, WhatAmI};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_ping")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_ping")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: Option<String>,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long)]
+    endpoint: Option<String>,
+
+    /// peer or client
+    #[clap(short, long, possible_values = ["peer", "client"])]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(short = "i", long = "interval")]
+
+    /// interval of sending message (sec)
+    #[clap(short, long)]
     interval: f64,
-    #[structopt(long = "parallel")]
+
+    /// spawn a task to receive or not
+    #[clap(long = "parallel")]
     parallel: bool,
+
+    /// declare a numerical ID for key expression
+    #[clap(long)]
+    use_expr: bool,
+
+    /// declare publication before the publisher
+    #[clap(long)]
+    declare_publication: bool,
 }
 
-async fn parallel(opt: Opt, config: Properties) {
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let zenoh = Arc::new(zenoh);
+const KEY_EXPR_PING: &str = "/test/z_ping";
+const KEY_EXPR_PONG: &str = "/test/z_pong";
+
+async fn parallel(opt: Opt, config: Config) {
+    let session = zenoh::open(config).await.unwrap();
+    let session = Arc::new(session);
 
     // The hashmap with the pings
     let pending = Arc::new(Mutex::new(HashMap::<u64, Instant>::new()));
-    let barrier = Arc::new(Barrier::new(2));
 
     let c_pending = pending.clone();
-    let c_barrier = barrier.clone();
-    let c_zenoh = zenoh.clone();
     let scenario = opt.scenario;
     let name = opt.name;
     let interval = opt.interval;
+
+    let mut sub = if opt.use_expr {
+        // Declare the subscriber
+        let key_expr_pong = session.declare_expr(KEY_EXPR_PONG).await.unwrap();
+        session.subscribe(key_expr_pong).reliable().await.unwrap()
+    } else {
+        session.subscribe(KEY_EXPR_PONG).reliable().await.unwrap()
+    };
+
+    let mut key_expr_ping = 0;
+    if opt.use_expr {
+        key_expr_ping = session.declare_expr(KEY_EXPR_PING).await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_ping).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication(KEY_EXPR_PING).await.unwrap();
+        }
+    }
     task::spawn(async move {
-        let workspace = c_zenoh.workspace(None).await.unwrap();
-        let mut sub = workspace
-            .subscribe(&"/test/pong/".to_string().try_into().unwrap())
-            .await
-            .unwrap();
+        while let Some(sample) = sub.next().await {
+            let mut payload_reader = sample.value.payload.reader();
+            let mut count_bytes = [0u8; 8];
+            if payload_reader.read_exact(&mut count_bytes) {
+                let count = u64::from_le_bytes(count_bytes);
 
-        // Notify that the subscriber has been created
-        c_barrier.wait().await;
-
-        while let Some(change) = sub.next().await {
-            match change.value.unwrap() {
-                Value::Raw(_, mut payload) => {
-                    let mut count_bytes = [0u8; 8];
-                    payload.read_bytes(&mut count_bytes);
-                    let count = u64::from_le_bytes(count_bytes);
-
-                    let instant = c_pending.lock().await.remove(&count).unwrap();
-                    println!(
-                        "zenoh,{},latency.parallel,{},{},{},{},{}",
-                        scenario,
-                        name,
-                        payload.len(),
-                        interval,
-                        count,
-                        instant.elapsed().as_micros()
-                    );
-                }
-                _ => panic!("Invalid value"),
+                let instant = c_pending.lock().await.remove(&count).unwrap();
+                println!(
+                    "zenoh,{},latency.parallel,{},{},{},{},{}",
+                    scenario,
+                    name,
+                    sample.value.payload.len(),
+                    interval,
+                    count,
+                    instant.elapsed().as_micros()
+                );
+            } else {
+                panic!("Fail to fill the buffer");
             }
         }
+        panic!("Invalid value!");
     });
 
-    // Wait for the subscriber to be declared
-    barrier.wait().await;
-
-    let workspace = zenoh.workspace(None).await.unwrap();
     let mut count: u64 = 0;
     loop {
         let count_bytes: [u8; 8] = count.to_le_bytes();
@@ -98,8 +127,13 @@ async fn parallel(opt: Opt, config: Properties) {
 
         pending.lock().await.insert(count, Instant::now());
 
-        workspace
-            .put(&"/test/ping".try_into().unwrap(), payload.into())
+        let writer = if opt.use_expr {
+            session.put(key_expr_ping, payload)
+        } else {
+            session.put(KEY_EXPR_PING, payload)
+        };
+        writer
+            .congestion_control(CongestionControl::Block)
             .await
             .unwrap();
 
@@ -108,19 +142,32 @@ async fn parallel(opt: Opt, config: Properties) {
     }
 }
 
-async fn single(opt: Opt, config: Properties) {
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
+async fn single(opt: Opt, config: Config) {
+    let session = zenoh::open(config).await.unwrap();
 
     let scenario = opt.scenario;
     let name = opt.name;
     let interval = opt.interval;
 
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let mut sub = workspace
-        .subscribe(&"/test/pong/".to_string().try_into().unwrap())
-        .await
-        .unwrap();
+    let mut sub = if opt.use_expr {
+        // Declare the subscriber
+        let key_expr_pong = session.declare_expr("/test/pong").await.unwrap();
+        session.subscribe(key_expr_pong).reliable().await.unwrap()
+    } else {
+        session.subscribe("/test/pong").reliable().await.unwrap()
+    };
 
+    let mut key_expr_ping = 0;
+    if opt.use_expr {
+        key_expr_ping = session.declare_expr("/test/ping").await.unwrap();
+        if opt.declare_publication {
+            session.declare_publication(key_expr_ping).await.unwrap();
+        }
+    } else {
+        if opt.declare_publication {
+            session.declare_publication("/test/ping").await.unwrap();
+        }
+    }
     let mut count: u64 = 0;
     loop {
         let count_bytes: [u8; 8] = count.to_le_bytes();
@@ -128,30 +175,38 @@ async fn single(opt: Opt, config: Properties) {
         payload[0..8].copy_from_slice(&count_bytes);
 
         let now = Instant::now();
-        workspace
-            .put(&"/test/ping".try_into().unwrap(), payload.into())
+        let writer = if opt.use_expr {
+            session.put(key_expr_ping, payload)
+        } else {
+            session.put("/test/ping", payload)
+        };
+        writer
+            .congestion_control(CongestionControl::Block)
             .await
             .unwrap();
 
-        match sub.next().await.unwrap().value.unwrap() {
-            Value::Raw(_, mut payload) => {
+        match sub.next().await {
+            Some(sample) => {
+                let mut payload_reader = sample.value.payload.reader();
                 let mut count_bytes = [0u8; 8];
-                payload.read_bytes(&mut count_bytes);
-                let s_count = u64::from_le_bytes(count_bytes);
+                if payload_reader.read_exact(&mut count_bytes) {
+                    let s_count = u64::from_le_bytes(count_bytes);
 
-                println!(
-                    "zenoh,{},latency.sequential,{},{},{},{},{}",
-                    scenario,
-                    name,
-                    payload.len(),
-                    interval,
-                    s_count,
-                    now.elapsed().as_micros()
-                );
+                    println!(
+                        "zenoh,{},latency.sequential,{},{},{},{},{}",
+                        scenario,
+                        name,
+                        sample.value.payload.len(),
+                        interval,
+                        s_count,
+                        now.elapsed().as_micros()
+                    );
+                } else {
+                    panic!("Fail to fill the buffer");
+                }
             }
             _ => panic!("Invalid value"),
         }
-
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;
     }
@@ -163,16 +218,23 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
+    let mut config = Config::default();
+    match opt.mode.as_str() {
+        "peer" => config.set_mode(Some(WhatAmI::Peer)).unwrap(),
+        "client" => config.set_mode(Some(WhatAmI::Client)).unwrap(),
+        _ => panic!("Unsupported mode: {}", opt.mode),
+    };
 
-    if opt.locator.is_none() {
-        config.insert("multicast_scouting".to_string(), "true".to_string());
+    if let Some(ref l) = opt.endpoint {
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config
+            .connect
+            .endpoints
+            .extend(l.split(',').map(|v| v.parse().unwrap()));
     } else {
-        config.insert("multicast_scouting".to_string(), "false".to_string());
-        config.insert("peer".to_string(), opt.locator.clone().unwrap());
+        config.scouting.multicast.set_enabled(Some(true)).unwrap();
     }
 
     if opt.parallel {
