@@ -12,17 +12,22 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::future;
+use clap::Parser;
 use slab::Slab;
-use std::any::Any;
-use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
-use structopt::StructOpt;
-use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::whatami;
-use zenoh::net::protocol::proto::ZenohMessage;
-use zenoh::net::transport::*;
-use zenoh_util::core::ZResult;
-use zenoh_util::properties::{IntKeyProperties, Properties};
+use std::{
+    any::Any,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
+use zenoh::{
+    config::{Config, WhatAmI},
+    net::{
+        link::{EndPoint, Link},
+        protocol::proto::ZenohMessage,
+        transport::*,
+    },
+};
+use zenoh_core::zresult::ZResult;
 
 type Table = Arc<RwLock<Slab<TransportUnicast>>>;
 
@@ -88,44 +93,48 @@ impl TransportPeerEventHandler for MyMH {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_router_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "s_router_thr")]
 struct Opt {
-    #[structopt(short = "l", long = "listen")]
+    /// which endpoints to listen on. e.g. --listen tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     listen: Vec<EndPoint>,
-    #[structopt(short = "c", long = "connect")]
+
+    /// which endpoints to connect to., e.g. --connect tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long, value_delimiter = ',')]
     connect: Vec<EndPoint>,
-    #[structopt(long = "conf", parse(from_os_str))]
+
+    /// configuration file (json5 or yaml)
+    #[clap(long = "conf", parse(from_os_str))]
     config: Option<PathBuf>,
 }
 
 #[async_std::main]
 async fn main() {
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        listen,
+        connect,
+        config,
+    } = Opt::parse();
 
     // Create the session manager
-    let bc = match opt.config.as_ref() {
-        Some(f) => {
-            let config = async_std::fs::read_to_string(f).await.unwrap();
-            let properties = Properties::from(config);
-            let int_props = IntKeyProperties::from(properties);
-            TransportManagerConfig::builder()
-                .from_config(&int_props)
-                .await
-                .unwrap()
-        }
-        None => TransportManagerConfig::builder().whatami(whatami::ROUTER),
+    let builder = match config {
+        Some(path) => TransportManager::builder()
+            .from_config(&Config::from_file(path).unwrap())
+            .await
+            .unwrap(),
+        None => TransportManager::builder().whatami(WhatAmI::Router),
     };
-    let config = bc.build(Arc::new(MySH::new()));
-    let manager = TransportManager::new(config);
+    let handler = Arc::new(MySH::new());
+    let manager = builder.build(handler).unwrap();
 
     // Create listeners
-    for l in opt.listen.iter() {
+    for l in listen {
         manager.add_listener(l.clone()).await.unwrap();
     }
     // Connect to other routers
-    for l in opt.connect.iter() {
+    for l in connect {
         let _t = manager.open_transport_unicast(l.clone()).await.unwrap();
     }
     // Stop forever
