@@ -19,3 +19,10 @@ cargo build --release \
   --bin r_pub_thr --bin r_sub_thr \
   --bin z_ping --bin z_pong
 ```
+
+_Other noticeable things_:
+* the locator option has been changed to --endpoint or -e
+* new options are added for performance comparison purpose:
+    * --use-expr: to use declare_expr() to declare the key expression
+    * --declare-publication: to call declare_publication() before publication
+    * --no-callback: to use receiver() for subscriber instead of using the callback (for z_sub_thr only)
