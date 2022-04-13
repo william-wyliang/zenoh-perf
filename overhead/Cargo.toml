@@ -32,7 +32,7 @@ description = "Zenoh: Zero Overhead Pub/sub, Store/Query and Compute."
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-async-std = { version = "=1.10.0", features = ["unstable"] }
+async-std = { version = "=1.11.0", features = ["unstable"] }
 async-trait = "0.1.42"
 env_logger = "0.9.0"
 log = "0.4.14"
@@ -43,8 +43,8 @@ hex = "0.4"
 serde_derive = "1.0.55"
 serde = { version = "1.0.55", features = ["derive"] }
 serde_json = { version = "1.0.55"}
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "9b7338b46ce2f317086db1ceb7f54fd5dd29af54" }
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
 
 
 [[bin]]
