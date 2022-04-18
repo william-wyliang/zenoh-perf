@@ -12,18 +12,18 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::future;
-use std::sync::{Arc, Mutex};
 use clap::Parser;
-use zenoh_protocol_core::{
-    Channel, CongestionControl, PeerId, QueryableInfo, ConsolidationStrategy, QueryTarget, Reliability, KeyExpr,
-    SubInfo, SubMode, ZInt, WhatAmI
-};
+use std::sync::{Arc, Mutex};
+use zenoh::config::Config;
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
 use zenoh::net::routing::face::Face;
 use zenoh::net::runtime::Runtime;
 use zenoh::net::transport::Primitives;
-use zenoh::config::Config;
+use zenoh_protocol_core::{
+    Channel, CongestionControl, ConsolidationStrategy, KeyExpr, PeerId, QueryTarget, QueryableInfo,
+    Reliability, SubInfo, SubMode, WhatAmI, ZInt,
+};
 
 struct LatencyPrimitives {
     tx: Mutex<Option<Arc<Face>>>,
@@ -63,7 +63,13 @@ impl Primitives for LatencyPrimitives {
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_queryable(&self, _key_expr: &KeyExpr, _kind: ZInt, _routing_context: Option<RoutingContext>) {}
+    fn forget_queryable(
+        &self,
+        _key_expr: &KeyExpr,
+        _kind: ZInt,
+        _routing_context: Option<RoutingContext>,
+    ) {
+    }
 
     fn send_data(
         &self,
@@ -75,7 +81,10 @@ impl Primitives for LatencyPrimitives {
         routing_context: Option<RoutingContext>,
     ) {
         let tx_primitive = self.tx.lock().unwrap();
-        tx_primitive.as_ref().unwrap().decl_resource(1, &"/test/pong".into());
+        tx_primitive
+            .as_ref()
+            .unwrap()
+            .decl_resource(1, &"/test/pong".into());
         let rid = KeyExpr::from(1);
         tx_primitive.as_ref().unwrap().send_data(
             &rid,
@@ -145,16 +154,25 @@ async fn main() {
     match opt.mode.as_str() {
         "peer" => {
             config.set_mode(Some(WhatAmI::Peer)).unwrap();
-            config.listen.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap()));  
-        }, 
+            config
+                .listen
+                .endpoints
+                .extend(opt.endpoint.split(',').map(|e| e.parse().unwrap()));
+        }
         "router" => {
             config.set_mode(Some(WhatAmI::Router)).unwrap();
-            config.listen.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap())); 
-        },
+            config
+                .listen
+                .endpoints
+                .extend(opt.endpoint.split(',').map(|e| e.parse().unwrap()));
+        }
         "client" => {
             config.set_mode(Some(WhatAmI::Client)).unwrap();
-            config.connect.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap())); 
-        },
+            config
+                .connect
+                .endpoints
+                .extend(opt.endpoint.split(',').map(|e| e.parse().unwrap()));
+        }
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
 

@@ -12,24 +12,26 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::task;
+use clap::Parser;
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use std::time::Instant;
-use clap::Parser;
-use zenoh_protocol_core::{
-    Channel, CongestionControl, PeerId, Priority, QueryableInfo, ConsolidationStrategy, QueryTarget, Reliability, KeyExpr, SubInfo, SubMode, ZInt, WhatAmI};
-use zenoh::net::protocol::io::{WBuf, ZBuf};
+use zenoh::config::Config;
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
-use std::io::Write;
 use zenoh::net::protocol::io::SplitBuffer;
+use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
 use zenoh::net::runtime::Runtime;
 use zenoh::net::transport::Primitives;
-use zenoh::config::Config;
+use zenoh_protocol_core::{
+    Channel, CongestionControl, ConsolidationStrategy, KeyExpr, PeerId, Priority, QueryTarget,
+    QueryableInfo, Reliability, SubInfo, SubMode, WhatAmI, ZInt,
+};
 
 const KEY_EXPR_PING: &str = "/test/ping";
-const KEY_EXPR_PONG: &str = "/test/pong"; 
+const KEY_EXPR_PONG: &str = "/test/pong";
 
 // Primitives for the non-blocking locator
 struct LatencyPrimitivesParallel {
@@ -76,7 +78,13 @@ impl Primitives for LatencyPrimitivesParallel {
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_queryable(&self, _key_expr: &KeyExpr, _kind: ZInt, _routing_context: Option<RoutingContext>) {}
+    fn forget_queryable(
+        &self,
+        _key_expr: &KeyExpr,
+        _kind: ZInt,
+        _routing_context: Option<RoutingContext>,
+    ) {
+    }
 
     fn send_data(
         &self,
@@ -89,7 +97,7 @@ impl Primitives for LatencyPrimitivesParallel {
     ) {
         let mut count_bytes = [0u8; 8];
         let mut data_reader = payload.reader();
-        if data_reader.read_exact(&mut count_bytes){
+        if data_reader.read_exact(&mut count_bytes) {
             let count = u64::from_le_bytes(count_bytes);
             let instant = self.pending.lock().unwrap().remove(&count).unwrap();
             println!(
@@ -170,7 +178,13 @@ impl Primitives for LatencyPrimitivesSequential {
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_queryable(&self, _key_expr: &KeyExpr, _kind: ZInt, _routing_context: Option<RoutingContext>) {}
+    fn forget_queryable(
+        &self,
+        _key_expr: &KeyExpr,
+        _kind: ZInt,
+        _routing_context: Option<RoutingContext>,
+    ) {
+    }
 
     fn send_data(
         &self,
@@ -183,7 +197,7 @@ impl Primitives for LatencyPrimitivesSequential {
     ) {
         let mut count_bytes = [0u8; 8];
         let mut data_reader = payload.reader();
-        if data_reader.read_exact(&mut count_bytes){
+        if data_reader.read_exact(&mut count_bytes) {
             let count = u64::from_le_bytes(count_bytes);
             let barrier = self.pending.lock().unwrap().remove(&count).unwrap();
             barrier.wait();
@@ -281,7 +295,7 @@ async fn parallel(opt: Opt, config: Config) {
     let congestion_control = CongestionControl::Block;
     let payload = vec![0u8; opt.payload - 8];
     let mut count: u64 = 0;
-    
+
     tx_primitives.decl_resource(2, &KEY_EXPR_PING.into());
     let rid = KeyExpr::from(2);
 
@@ -290,7 +304,7 @@ async fn parallel(opt: Opt, config: Config) {
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
         data.write(&count_bytes).unwrap();
-        data.write(&payload).unwrap(); 
+        data.write(&payload).unwrap();
         let data: ZBuf = data.into();
 
         // Insert the pending ping
@@ -365,16 +379,19 @@ async fn main() {
 
     // Parse the args
     let opt = Opt::parse();
-    
+
     let mut config = Config::default();
     match opt.mode.as_str() {
-    "peer" => config.set_mode(Some(WhatAmI::Peer)).unwrap(),
-    "client" => config.set_mode(Some(WhatAmI::Client)).unwrap(),
-    "router" => config.set_mode(Some(WhatAmI::Router)).unwrap(),
-    _ => panic!("Unsupported mode {}", opt.mode), 
+        "peer" => config.set_mode(Some(WhatAmI::Peer)).unwrap(),
+        "client" => config.set_mode(Some(WhatAmI::Client)).unwrap(),
+        "router" => config.set_mode(Some(WhatAmI::Router)).unwrap(),
+        _ => panic!("Unsupported mode {}", opt.mode),
     };
     config.scouting.multicast.set_enabled(Some(false)).unwrap();
-    config.connect.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap())); 
+    config
+        .connect
+        .endpoints
+        .extend(opt.endpoint.split(',').map(|e| e.parse().unwrap()));
 
     if opt.parallel {
         parallel(opt, config).await;
