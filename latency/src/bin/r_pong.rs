@@ -14,18 +14,16 @@
 use async_std::future;
 use std::sync::{Arc, Mutex};
 use clap::Parser;
-use zenoh::net::protocol::core::{
-    Channel, CongestionControl, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey,
-    SubInfo, SubMode, ZInt,
+use zenoh_protocol_core::{
+    Channel, CongestionControl, PeerId, QueryableInfo, ConsolidationStrategy, QueryTarget, Reliability, KeyExpr,
+    SubInfo, SubMode, ZInt, WhatAmI
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
 use zenoh::net::routing::face::Face;
 use zenoh::net::runtime::Runtime;
 use zenoh::net::transport::Primitives;
-use zenoh_util::properties::config::{
-    ConfigProperties, ZN_LISTENER_KEY, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
-};
+use zenoh::config::Config;
 
 struct LatencyPrimitives {
     tx: Mutex<Option<Arc<Face>>>,
@@ -45,39 +43,42 @@ impl LatencyPrimitives {
 }
 
 impl Primitives for LatencyPrimitives {
-    fn decl_resource(&self, _rid: ZInt, _reskey: &ResKey) {}
-    fn forget_resource(&self, _rid: ZInt) {}
-    fn decl_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
-    fn forget_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn decl_resource(&self, _expr_id: ZInt, _key_expr: &KeyExpr) {}
+    fn forget_resource(&self, _expr_id: ZInt) {}
+    fn decl_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
+    fn forget_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
     fn decl_subscriber(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _sub_info: &SubInfo,
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_subscriber(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn forget_subscriber(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
     fn decl_queryable(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _kind: ZInt,
+        _qabl_info: &QueryableInfo,
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_queryable(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn forget_queryable(&self, _key_expr: &KeyExpr, _kind: ZInt, _routing_context: Option<RoutingContext>) {}
 
     fn send_data(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         payload: ZBuf,
         channel: Channel,
         congestion_control: CongestionControl,
         data_info: Option<DataInfo>,
         routing_context: Option<RoutingContext>,
     ) {
-        let reskey = ResKey::RName("/test/pong".to_string());
-        self.tx.lock().unwrap().as_ref().unwrap().send_data(
-            &reskey,
+        let tx_primitive = self.tx.lock().unwrap();
+        tx_primitive.as_ref().unwrap().decl_resource(1, &"/test/pong".into());
+        let rid = KeyExpr::from(1);
+        tx_primitive.as_ref().unwrap().send_data(
+            &rid,
             payload,
             channel,
             congestion_control,
@@ -88,11 +89,11 @@ impl Primitives for LatencyPrimitives {
 
     fn send_query(
         &self,
-        _reskey: &ResKey,
-        _predicate: &str,
+        _key_expr: &KeyExpr,
+        _value_selector: &str,
         _qid: ZInt,
         _target: QueryTarget,
-        _consolidation: QueryConsolidation,
+        _consolidation: ConsolidationStrategy,
         _routing_context: Option<RoutingContext>,
     ) {
     }
@@ -101,7 +102,7 @@ impl Primitives for LatencyPrimitives {
         _qid: ZInt,
         _source_kind: ZInt,
         _replier_id: PeerId,
-        _reskey: ResKey,
+        _key_expr: KeyExpr,
         _info: Option<DataInfo>,
         _payload: ZBuf,
     ) {
@@ -110,7 +111,7 @@ impl Primitives for LatencyPrimitives {
     fn send_pull(
         &self,
         _is_final: bool,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _pull_id: ZInt,
         _max_samples: &Option<ZInt>,
     ) {
@@ -124,7 +125,7 @@ struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long)]
     endpoint: String,
-    
+
     /// peer or client or router
     #[clap(short, long)]
     mode: String,
@@ -138,22 +139,32 @@ async fn main() {
     // Parse the args
     let opt = Opt::parse();
 
-    let mut config = ConfigProperties::default();
-    config.insert(ZN_MODE_KEY, opt.mode.clone());
+    let mut config = Config::default();
 
-    config.insert(ZN_MULTICAST_SCOUTING_KEY, "false".to_string());
+    config.scouting.multicast.set_enabled(Some(false)).unwrap();
     match opt.mode.as_str() {
-        "peer" | "router" => config.insert(ZN_LISTENER_KEY, opt.locator),
-        "client" => config.insert(ZN_PEER_KEY, opt.locator),
+        "peer" => {
+            config.set_mode(Some(WhatAmI::Peer)).unwrap();
+            config.listen.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap()));  
+        }, 
+        "router" => {
+            config.set_mode(Some(WhatAmI::Router)).unwrap();
+            config.listen.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap())); 
+        },
+        "client" => {
+            config.set_mode(Some(WhatAmI::Client)).unwrap();
+            config.connect.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap())); 
+        },
         _ => panic!("Unsupported mode: {}", opt.mode),
     };
 
-    let runtime = Runtime::new(0u8, config, None).await.unwrap();
+    let runtime = Runtime::new(config).await.unwrap();
     let rx_primitives = Arc::new(LatencyPrimitives::new());
     let tx_primitives = runtime.router.new_primitives(rx_primitives.clone());
     rx_primitives.set_tx(tx_primitives.clone());
 
-    let rid = ResKey::RName("/test/ping".to_string());
+    tx_primitives.decl_resource(2, &"/test/ping".into());
+    let rid = KeyExpr::from(2);
     let sub_info = SubInfo {
         reliability: Reliability::Reliable,
         mode: SubMode::Push,

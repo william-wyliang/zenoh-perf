@@ -17,17 +17,19 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use std::time::Instant;
 use clap::Parser;
-use zenoh::net::protocol::core::{
-    Channel, CongestionControl, PeerId, Priority, QueryConsolidation, QueryTarget, Reliability,
-    ResKey, SubInfo, SubMode, ZInt,
-};
+use zenoh_protocol_core::{
+    Channel, CongestionControl, PeerId, Priority, QueryableInfo, ConsolidationStrategy, QueryTarget, Reliability, KeyExpr, SubInfo, SubMode, ZInt, WhatAmI};
 use zenoh::net::protocol::io::{WBuf, ZBuf};
+use zenoh::net::protocol::io::reader::{HasReader, Reader};
+use std::io::Write;
+use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::net::protocol::proto::{DataInfo, RoutingContext};
 use zenoh::net::runtime::Runtime;
 use zenoh::net::transport::Primitives;
-use zenoh_util::properties::config::{
-    ConfigProperties, ZN_MODE_KEY, ZN_MULTICAST_SCOUTING_KEY, ZN_PEER_KEY,
-};
+use zenoh::config::Config;
+
+const KEY_EXPR_PING: &str = "/test/ping";
+const KEY_EXPR_PONG: &str = "/test/pong"; 
 
 // Primitives for the non-blocking locator
 struct LatencyPrimitivesParallel {
@@ -54,67 +56,72 @@ impl LatencyPrimitivesParallel {
 }
 
 impl Primitives for LatencyPrimitivesParallel {
-    fn decl_resource(&self, _rid: ZInt, _reskey: &ResKey) {}
-    fn forget_resource(&self, _rid: ZInt) {}
-    fn decl_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
-    fn forget_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn decl_resource(&self, _expr_id: ZInt, _key_expr: &KeyExpr) {}
+    fn forget_resource(&self, _expr_id: ZInt) {}
+    fn decl_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
+    fn forget_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
     fn decl_subscriber(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _sub_info: &SubInfo,
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_subscriber(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn forget_subscriber(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
     fn decl_queryable(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _kind: ZInt,
+        _qabl_info: &QueryableInfo,
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_queryable(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn forget_queryable(&self, _key_expr: &KeyExpr, _kind: ZInt, _routing_context: Option<RoutingContext>) {}
 
     fn send_data(
         &self,
-        _reskey: &ResKey,
-        mut payload: ZBuf,
+        _key_expr: &KeyExpr,
+        payload: ZBuf,
         _channel: Channel,
         _congestion_control: CongestionControl,
         _data_info: Option<DataInfo>,
         _routing_context: Option<RoutingContext>,
     ) {
         let mut count_bytes = [0u8; 8];
-        payload.read_bytes(&mut count_bytes);
-        let count = u64::from_le_bytes(count_bytes);
-        let instant = self.pending.lock().unwrap().remove(&count).unwrap();
-        println!(
-            "router,{},latency.parallel,{},{},{},{},{}",
-            self.scenario,
-            self.name,
-            payload.len(),
-            self.interval,
-            count,
-            instant.elapsed().as_micros()
-        );
+        let mut data_reader = payload.reader();
+        if data_reader.read_exact(&mut count_bytes){
+            let count = u64::from_le_bytes(count_bytes);
+            let instant = self.pending.lock().unwrap().remove(&count).unwrap();
+            println!(
+                "router,{},latency.parallel,{},{},{},{},{}",
+                self.scenario,
+                self.name,
+                payload.len(),
+                self.interval,
+                count,
+                instant.elapsed().as_micros()
+            );
+        } else {
+            panic!("Fail to fill the buffer");
+        }
     }
 
     fn send_query(
         &self,
-        _reskey: &ResKey,
-        _predicate: &str,
+        _key_expr: &KeyExpr,
+        _value_selector: &str,
         _qid: ZInt,
         _target: QueryTarget,
-        _consolidation: QueryConsolidation,
+        _consolidation: ConsolidationStrategy,
         _routing_context: Option<RoutingContext>,
     ) {
     }
     fn send_reply_data(
         &self,
         _qid: ZInt,
-        _source_kind: ZInt,
+        _replier_kind: ZInt,
         _replier_id: PeerId,
-        _reskey: ResKey,
+        _key_expr: KeyExpr,
         _info: Option<DataInfo>,
         _payload: ZBuf,
     ) {
@@ -123,7 +130,7 @@ impl Primitives for LatencyPrimitivesParallel {
     fn send_pull(
         &self,
         _is_final: bool,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _pull_id: ZInt,
         _max_samples: &Option<ZInt>,
     ) {
@@ -143,59 +150,64 @@ impl LatencyPrimitivesSequential {
 }
 
 impl Primitives for LatencyPrimitivesSequential {
-    fn decl_resource(&self, _rid: ZInt, _reskey: &ResKey) {}
-    fn forget_resource(&self, _rid: ZInt) {}
-    fn decl_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
-    fn forget_publisher(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn decl_resource(&self, _expr_id: ZInt, _key_expr: &KeyExpr) {}
+    fn forget_resource(&self, _expr_id: ZInt) {}
+    fn decl_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
+    fn forget_publisher(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
     fn decl_subscriber(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _sub_info: &SubInfo,
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_subscriber(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn forget_subscriber(&self, _key_expr: &KeyExpr, _routing_context: Option<RoutingContext>) {}
     fn decl_queryable(
         &self,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _kind: ZInt,
+        _qabl_info: &QueryableInfo,
         _routing_context: Option<RoutingContext>,
     ) {
     }
-    fn forget_queryable(&self, _reskey: &ResKey, _routing_context: Option<RoutingContext>) {}
+    fn forget_queryable(&self, _key_expr: &KeyExpr, _kind: ZInt, _routing_context: Option<RoutingContext>) {}
 
     fn send_data(
         &self,
-        _reskey: &ResKey,
-        mut payload: ZBuf,
+        _key_expr: &KeyExpr,
+        payload: ZBuf,
         _channel: Channel,
         _congestion_control: CongestionControl,
         _data_info: Option<DataInfo>,
         _routing_context: Option<RoutingContext>,
     ) {
         let mut count_bytes = [0u8; 8];
-        payload.read_bytes(&mut count_bytes);
-        let count = u64::from_le_bytes(count_bytes);
-        let barrier = self.pending.lock().unwrap().remove(&count).unwrap();
-        barrier.wait();
+        let mut data_reader = payload.reader();
+        if data_reader.read_exact(&mut count_bytes){
+            let count = u64::from_le_bytes(count_bytes);
+            let barrier = self.pending.lock().unwrap().remove(&count).unwrap();
+            barrier.wait();
+        } else {
+            panic!("Fail to fill the buffer");
+        }
     }
 
     fn send_query(
         &self,
-        _reskey: &ResKey,
-        _predicate: &str,
+        _key_expr: &KeyExpr,
+        _value_selector: &str,
         _qid: ZInt,
         _target: QueryTarget,
-        _consolidation: QueryConsolidation,
+        _consolidation: ConsolidationStrategy,
         _routing_context: Option<RoutingContext>,
     ) {
     }
     fn send_reply_data(
         &self,
         _qid: ZInt,
-        _source_kind: ZInt,
+        _replier_kind: ZInt,
         _replier_id: PeerId,
-        _reskey: ResKey,
+        _key_expr: KeyExpr,
         _info: Option<DataInfo>,
         _payload: ZBuf,
     ) {
@@ -204,7 +216,7 @@ impl Primitives for LatencyPrimitivesSequential {
     fn send_pull(
         &self,
         _is_final: bool,
-        _reskey: &ResKey,
+        _key_expr: &KeyExpr,
         _pull_id: ZInt,
         _max_samples: &Option<ZInt>,
     ) {
@@ -241,11 +253,10 @@ struct Opt {
     #[clap(long = "parallel")]
     parallel: bool,
 }
-
-async fn parallel(opt: Opt, config: ConfigProperties) {
+async fn parallel(opt: Opt, config: Config) {
     let pending: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    let runtime = Runtime::new(0u8, config, None).await.unwrap();
+    let runtime = Runtime::new(config).await.unwrap();
     let rx_primitives = Arc::new(LatencyPrimitivesParallel::new(
         opt.scenario,
         opt.name,
@@ -254,7 +265,8 @@ async fn parallel(opt: Opt, config: ConfigProperties) {
     ));
     let tx_primitives = runtime.router.new_primitives(rx_primitives);
 
-    let rid = ResKey::RName("/test/pong".to_string());
+    tx_primitives.decl_resource(1, &KEY_EXPR_PONG.into());
+    let rid = KeyExpr::from(1);
     let sub_info = SubInfo {
         reliability: Reliability::Reliable,
         mode: SubMode::Push,
@@ -269,33 +281,37 @@ async fn parallel(opt: Opt, config: ConfigProperties) {
     let congestion_control = CongestionControl::Block;
     let payload = vec![0u8; opt.payload - 8];
     let mut count: u64 = 0;
-    let reskey = ResKey::RName("/test/ping".to_string());
+    
+    tx_primitives.decl_resource(2, &KEY_EXPR_PING.into());
+    let rid = KeyExpr::from(2);
+
     loop {
         // Create and send the message
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
-        data.write_bytes(&count_bytes);
-        data.write_bytes(&payload);
+        data.write(&count_bytes).unwrap();
+        data.write(&payload).unwrap(); 
         let data: ZBuf = data.into();
 
         // Insert the pending ping
         pending.lock().unwrap().insert(count, Instant::now());
 
-        tx_primitives.send_data(&reskey, data, channel, congestion_control, None, None);
+        tx_primitives.send_data(&rid, data, channel, congestion_control, None, None);
 
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;
     }
 }
 
-async fn single(opt: Opt, config: ConfigProperties) {
+async fn single(opt: Opt, config: Config) {
     let pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    let runtime = Runtime::new(0u8, config, None).await.unwrap();
+    let runtime = Runtime::new(config).await.unwrap();
     let rx_primitives = Arc::new(LatencyPrimitivesSequential::new(pending.clone()));
     let tx_primitives = runtime.router.new_primitives(rx_primitives);
 
-    let rid = ResKey::RName("/test/pong".to_string());
+    tx_primitives.decl_resource(1, &KEY_EXPR_PONG.into());
+    let rid = KeyExpr::from(1);
     let sub_info = SubInfo {
         reliability: Reliability::Reliable,
         mode: SubMode::Push,
@@ -310,13 +326,14 @@ async fn single(opt: Opt, config: ConfigProperties) {
     let congestion_control = CongestionControl::Block;
     let payload = vec![0u8; opt.payload - 8];
     let mut count: u64 = 0;
-    let reskey = ResKey::RName("/test/ping".to_string());
+    tx_primitives.decl_resource(2, &KEY_EXPR_PING.into());
+    let rid = KeyExpr::from(2);
     loop {
         // Create and send the message
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
-        data.write_bytes(&count_bytes);
-        data.write_bytes(&payload);
+        data.write(&count_bytes).unwrap();
+        data.write(&payload).unwrap();
         let data: ZBuf = data.into();
 
         // Insert the pending ping
@@ -324,7 +341,7 @@ async fn single(opt: Opt, config: ConfigProperties) {
         pending.lock().unwrap().insert(count, barrier.clone());
 
         let now = Instant::now();
-        tx_primitives.send_data(&reskey, data, channel, congestion_control, None, None);
+        tx_primitives.send_data(&rid, data, channel, congestion_control, None, None);
         barrier.wait();
         println!(
             "router,{},latency.sequential,{},{},{},{},{}",
@@ -348,12 +365,16 @@ async fn main() {
 
     // Parse the args
     let opt = Opt::parse();
-
-    let mut config = ConfigProperties::default();
-    config.insert(ZN_MODE_KEY, opt.mode.clone());
-
-    config.insert(ZN_MULTICAST_SCOUTING_KEY, "false".to_string());
-    config.insert(ZN_PEER_KEY, opt.locator.clone());
+    
+    let mut config = Config::default();
+    match opt.mode.as_str() {
+    "peer" => config.set_mode(Some(WhatAmI::Peer)).unwrap(),
+    "client" => config.set_mode(Some(WhatAmI::Client)).unwrap(),
+    "router" => config.set_mode(Some(WhatAmI::Router)).unwrap(),
+    _ => panic!("Unsupported mode {}", opt.mode), 
+    };
+    config.scouting.multicast.set_enabled(Some(false)).unwrap();
+    config.connect.endpoints.extend(opt.endpoint.split(',').map(|e| e.parse().unwrap())); 
 
     if opt.parallel {
         parallel(opt, config).await;
