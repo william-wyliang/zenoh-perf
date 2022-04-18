@@ -13,7 +13,7 @@
 //
 use async_std::future;
 use std::sync::{Arc, Mutex};
-use structopt::StructOpt;
+use clap::Parser;
 use zenoh::net::protocol::core::{
     Channel, CongestionControl, PeerId, QueryConsolidation, QueryTarget, Reliability, ResKey,
     SubInfo, SubMode, ZInt,
@@ -118,12 +118,15 @@ impl Primitives for LatencyPrimitives {
     fn send_close(&self) {}
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "r_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "r_pong")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long)]
+    endpoint: String,
+    
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
 }
 
@@ -133,7 +136,7 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let mut config = ConfigProperties::default();
     config.insert(ZN_MODE_KEY, opt.mode.clone());
