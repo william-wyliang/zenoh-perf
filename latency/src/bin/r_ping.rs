@@ -303,8 +303,8 @@ async fn parallel(opt: Opt, config: Config) {
         // Create and send the message
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
-        data.write(&count_bytes).unwrap();
-        data.write(&payload).unwrap();
+        data.write_all(&count_bytes).unwrap();
+        data.write_all(&payload).unwrap();
         let data: ZBuf = data.into();
 
         // Insert the pending ping
@@ -346,8 +346,8 @@ async fn single(opt: Opt, config: Config) {
         // Create and send the message
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
-        data.write(&count_bytes).unwrap();
-        data.write(&payload).unwrap();
+        data.write_all(&count_bytes).unwrap();
+        data.write_all(&payload).unwrap();
         let data: ZBuf = data.into();
 
         // Insert the pending ping
