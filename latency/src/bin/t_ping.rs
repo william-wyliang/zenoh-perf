@@ -16,7 +16,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
-use structopt::StructOpt;
+use clap::Parser;
 use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::{
     whatami, Channel, CongestionControl, Priority, Reliability, ResKey, WhatAmI,
@@ -191,22 +191,35 @@ impl TransportPeerEventHandler for MyMHSequential {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_ping")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
+    #[clap(short, long)]
+    endpoint: String,
+
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    /// name of the test
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    /// name of the scenario 
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(short = "i", long = "interval")]
+
+    /// interval of sending message (sec)
+    #[clap(short, long)]
     interval: f64,
-    #[structopt(long = "parallel")]
+
+    /// spawn a task to receive or not
+    #[clap(long)]
     parallel: bool,
 }
 
@@ -339,7 +352,7 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
