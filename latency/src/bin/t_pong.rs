@@ -13,16 +13,17 @@
 //
 use async_std::future;
 use async_std::sync::Arc;
+use std::str::FromStr;
 use std::any::Any;
 use clap::Parser;
-use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::whatami;
+use zenoh::net::link::Link;
+use zenoh_protocol_core::{WhatAmI, EndPoint};
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::transport::{
-    TransportEventHandler, TransportManager, TransportManagerConfig, TransportMulticast,
+    TransportEventHandler, TransportManager, TransportMulticast,
     TransportMulticastEventHandler, TransportPeer, TransportPeerEventHandler, TransportUnicast,
 };
-use zenoh_util::core::ZResult;
+use zenoh_core::Result as ZResult;
 
 // Transport Handler for the peer
 struct MySH;
@@ -76,7 +77,7 @@ impl TransportPeerEventHandler for MyMH {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "s_sub_thr")]
+#[clap(name = "t_pong")]
 struct Opt {
     /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
     #[clap(short, long)]
@@ -95,18 +96,18 @@ async fn main() {
     // Parse the args
     let opt = Opt::parse();
 
-    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
+    let whatami = WhatAmI::from_str(opt.mode.as_str()).unwrap();
 
-    let config = TransportManagerConfig::builder()
+    let manager = TransportManager::builder()
         .whatami(whatami)
-        .build(Arc::new(MySH::new()));
-    let manager = TransportManager::new(config);
+        .build(Arc::new(MySH::new()))
+        .unwrap();
 
     // Connect to the peer or listen
-    if whatami == whatami::PEER {
-        manager.add_listener(opt.locator).await.unwrap();
+    if whatami == WhatAmI::Peer {
+        manager.add_listener(EndPoint::from_str(opt.endpoint.as_str()).unwrap()).await.unwrap();
     } else {
-        let _session = manager.open_transport(opt.locator).await.unwrap();
+        let _session = manager.open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap()).await.unwrap();
     }
 
     // Stop forever
