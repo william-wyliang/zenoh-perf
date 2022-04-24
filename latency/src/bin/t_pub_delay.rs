@@ -14,7 +14,7 @@
 use async_std::sync::Arc;
 use async_std::task;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use structopt::StructOpt;
+use clap::Parser;
 use zenoh::net::link::EndPoint;
 use zenoh::net::protocol::core::{
     whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
@@ -52,16 +52,23 @@ impl TransportEventHandler for MySH {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_ping")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_pub_delay")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
+    #[clap(short, long)]
+    endpoint: String,
+
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "i", long = "interval")]
+
+    /// interval of sending message (sec)
+    #[clap(short, long)]
     interval: f64,
 }
 
@@ -71,7 +78,7 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 

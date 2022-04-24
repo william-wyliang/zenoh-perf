@@ -15,7 +15,7 @@ use async_std::future;
 use async_std::sync::Arc;
 use std::any::Any;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use structopt::StructOpt;
+use clap::Parser;
 use zenoh::net::link::{EndPoint, Link};
 use zenoh::net::protocol::core::whatami;
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
@@ -92,12 +92,15 @@ impl TransportPeerEventHandler for MyMH {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_sub_delay")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
+    #[clap(short, long)]
+    endpoint: String,
+
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
 }
 
@@ -107,7 +110,7 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let whatami = whatami::parse(opt.mode.as_str()).unwrap();
 
