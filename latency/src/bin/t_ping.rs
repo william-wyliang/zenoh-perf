@@ -12,24 +12,21 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::task;
-use std::str::FromStr;
+use clap::Parser;
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::Write;
+use std::str::FromStr;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
-use clap::Parser;
 use zenoh::net::link::Link;
-use zenoh_protocol_core::{
-     Channel, CongestionControl, Priority, Reliability, WhatAmI, EndPoint
-};
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
 use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
 use zenoh::net::transport::*;
 use zenoh_core::Result as ZResult;
-
+use zenoh_protocol_core::{Channel, CongestionControl, EndPoint, Priority, Reliability, WhatAmI};
 
 // Transport Handler for the non-blocking endpoint
 struct MySHParallel {
@@ -181,7 +178,7 @@ impl TransportPeerEventHandler for MyMHSequential {
         match message.body {
             ZenohBody::Data(Data { payload, .. }) => {
                 let mut count_bytes = [0u8; 8];
-                let mut data_reader = payload.reader(); 
+                let mut data_reader = payload.reader();
                 if data_reader.read_exact(&mut count_bytes) {
                     let count = u64::from_le_bytes(count_bytes);
                     let barrier = self.pending.lock().unwrap().remove(&count).unwrap();
@@ -223,7 +220,7 @@ struct Opt {
     #[clap(short, long)]
     name: String,
 
-    /// name of the scenario 
+    /// name of the scenario
     #[clap(short, long)]
     scenario: String,
 
@@ -244,7 +241,10 @@ async fn single(opt: Opt, whatami: WhatAmI) {
         .unwrap();
 
     // Connect to publisher
-    let session = manager.open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap()).await.unwrap();
+    let session = manager
+        .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+        .await
+        .unwrap();
 
     let sleep = Duration::from_secs_f64(opt.interval);
     let payload = vec![0u8; opt.payload - 8];
@@ -314,7 +314,10 @@ async fn parallel(opt: Opt, whatami: WhatAmI) {
         .unwrap();
 
     // Connect to publisher
-    let session = manager.open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap()).await.unwrap();
+    let session = manager
+        .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+        .await
+        .unwrap();
 
     let sleep = Duration::from_secs_f64(opt.interval);
     let payload = vec![0u8; opt.payload - 8];

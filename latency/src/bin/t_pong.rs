@@ -13,17 +13,17 @@
 //
 use async_std::future;
 use async_std::sync::Arc;
-use std::str::FromStr;
-use std::any::Any;
 use clap::Parser;
+use std::any::Any;
+use std::str::FromStr;
 use zenoh::net::link::Link;
-use zenoh_protocol_core::{WhatAmI, EndPoint};
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::transport::{
-    TransportEventHandler, TransportManager, TransportMulticast,
-    TransportMulticastEventHandler, TransportPeer, TransportPeerEventHandler, TransportUnicast,
+    TransportEventHandler, TransportManager, TransportMulticast, TransportMulticastEventHandler,
+    TransportPeer, TransportPeerEventHandler, TransportUnicast,
 };
 use zenoh_core::Result as ZResult;
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
 // Transport Handler for the peer
 struct MySH;
@@ -105,9 +105,15 @@ async fn main() {
 
     // Connect to the peer or listen
     if whatami == WhatAmI::Peer {
-        manager.add_listener(EndPoint::from_str(opt.endpoint.as_str()).unwrap()).await.unwrap();
+        manager
+            .add_listener(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+            .await
+            .unwrap();
     } else {
-        let _session = manager.open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap()).await.unwrap();
+        let _session = manager
+            .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+            .await
+            .unwrap();
     }
 
     // Stop forever

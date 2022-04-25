@@ -257,7 +257,7 @@ struct Opt {
     #[clap(short, long)]
     name: String,
 
-    /// name of the scenario 
+    /// name of the scenario
     #[clap(short, long)]
     scenario: String,
 
