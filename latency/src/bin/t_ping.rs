@@ -12,21 +12,23 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::task;
+use clap::Parser;
 use std::any::Any;
 use std::collections::HashMap;
+use std::io::Write;
+use std::str::FromStr;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
-use structopt::StructOpt;
-use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::{
-    whatami, Channel, CongestionControl, Priority, Reliability, ResKey, WhatAmI,
-};
+use zenoh::net::link::Link;
+use zenoh::net::protocol::io::reader::{HasReader, Reader};
+use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::net::protocol::io::{WBuf, ZBuf};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
 use zenoh::net::transport::*;
-use zenoh_util::core::ZResult;
+use zenoh_core::Result as ZResult;
+use zenoh_protocol_core::{Channel, CongestionControl, EndPoint, Priority, Reliability, WhatAmI};
 
-// Transport Handler for the non-blocking locator
+// Transport Handler for the non-blocking endpoint
 struct MySHParallel {
     scenario: String,
     name: String,
@@ -72,7 +74,7 @@ impl TransportEventHandler for MySHParallel {
     }
 }
 
-// Message Handler for the locator
+// Message Handler for the endpoint
 struct MyMHParallel {
     scenario: String,
     name: String,
@@ -99,20 +101,24 @@ impl MyMHParallel {
 impl TransportPeerEventHandler for MyMHParallel {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
-            ZenohBody::Data(Data { mut payload, .. }) => {
+            ZenohBody::Data(Data { payload, .. }) => {
                 let mut count_bytes = [0u8; 8];
-                payload.read_bytes(&mut count_bytes);
-                let count = u64::from_le_bytes(count_bytes);
-                let instant = self.pending.lock().unwrap().remove(&count).unwrap();
-                println!(
-                    "session,{},latency.parallel,{},{},{},{},{}",
-                    self.scenario,
-                    self.name,
-                    payload.len(),
-                    self.interval,
-                    count,
-                    instant.elapsed().as_micros()
-                );
+                let mut data_reader = payload.reader();
+                if data_reader.read_exact(&mut count_bytes) {
+                    let count = u64::from_le_bytes(count_bytes);
+                    let instant = self.pending.lock().unwrap().remove(&count).unwrap();
+                    println!(
+                        "session,{},latency.parallel,{},{},{},{},{}",
+                        self.scenario,
+                        self.name,
+                        payload.len(),
+                        self.interval,
+                        count,
+                        instant.elapsed().as_micros()
+                    );
+                } else {
+                    panic!("Fail to fill the buffer");
+                }
             }
             _ => panic!("Invalid message"),
         }
@@ -128,7 +134,7 @@ impl TransportPeerEventHandler for MyMHParallel {
     }
 }
 
-// Transport Handler for the blocking locator
+// Transport Handler for the blocking endpoint
 struct MySHSequential {
     pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>>,
 }
@@ -156,7 +162,7 @@ impl TransportEventHandler for MySHSequential {
     }
 }
 
-// Message Handler for the locator
+// Message Handler for the endpoint
 struct MyMHSequential {
     pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>>,
 }
@@ -170,12 +176,16 @@ impl MyMHSequential {
 impl TransportPeerEventHandler for MyMHSequential {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
-            ZenohBody::Data(Data { mut payload, .. }) => {
+            ZenohBody::Data(Data { payload, .. }) => {
                 let mut count_bytes = [0u8; 8];
-                payload.read_bytes(&mut count_bytes);
-                let count = u64::from_le_bytes(count_bytes);
-                let barrier = self.pending.lock().unwrap().remove(&count).unwrap();
-                barrier.wait();
+                let mut data_reader = payload.reader();
+                if data_reader.read_exact(&mut count_bytes) {
+                    let count = u64::from_le_bytes(count_bytes);
+                    let barrier = self.pending.lock().unwrap().remove(&count).unwrap();
+                    barrier.wait();
+                } else {
+                    panic!("Fail to fill the buffer");
+                }
             }
             _ => panic!("Invalid message"),
         }
@@ -191,34 +201,50 @@ impl TransportPeerEventHandler for MyMHSequential {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_ping")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
+    #[clap(short, long)]
+    endpoint: String,
+
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// payload size (bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "n", long = "name")]
+
+    /// name of the test
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    /// name of the scenario
+    #[clap(short, long)]
     scenario: String,
-    #[structopt(short = "i", long = "interval")]
+
+    /// interval of sending message (sec)
+    #[clap(short, long)]
     interval: f64,
-    #[structopt(long = "parallel")]
+
+    /// spawn a task to receive or not
+    #[clap(long)]
     parallel: bool,
 }
 
 async fn single(opt: Opt, whatami: WhatAmI) {
     let pending: Arc<Mutex<HashMap<u64, Arc<Barrier>>>> = Arc::new(Mutex::new(HashMap::new()));
-    let config = TransportManagerConfig::builder()
+    let manager = TransportManager::builder()
         .whatami(whatami)
-        .build(Arc::new(MySHSequential::new(pending.clone())));
-    let manager = TransportManager::new(config);
+        .build(Arc::new(MySHSequential::new(pending.clone())))
+        .unwrap();
 
     // Connect to publisher
-    let session = manager.open_transport(opt.locator).await.unwrap();
+    let session = manager
+        .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+        .await
+        .unwrap();
 
     let sleep = Duration::from_secs_f64(opt.interval);
     let payload = vec![0u8; opt.payload - 8];
@@ -230,20 +256,20 @@ async fn single(opt: Opt, whatami: WhatAmI) {
             reliability: Reliability::Reliable,
         };
         let congestion_control = CongestionControl::Block;
-        let key = ResKey::RName("/test/ping".to_string());
+        let key = "/test/ping";
         let info = None;
 
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
-        data.write_bytes(&count_bytes);
-        data.write_bytes(&payload);
+        data.write_all(&count_bytes).unwrap();
+        data.write_all(&payload).unwrap();
         let data: ZBuf = data.into();
         let routing_context = None;
         let reply_context = None;
         let attachment = None;
 
         let message = ZenohMessage::make_data(
-            key,
+            key.into(),
             data,
             channel,
             congestion_control,
@@ -277,18 +303,21 @@ async fn single(opt: Opt, whatami: WhatAmI) {
 
 async fn parallel(opt: Opt, whatami: WhatAmI) {
     let pending: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
-    let config = TransportManagerConfig::builder()
+    let manager = TransportManager::builder()
         .whatami(whatami)
         .build(Arc::new(MySHParallel::new(
             opt.scenario,
             opt.name,
             opt.interval,
             pending.clone(),
-        )));
-    let manager = TransportManager::new(config);
+        )))
+        .unwrap();
 
     // Connect to publisher
-    let session = manager.open_transport(opt.locator).await.unwrap();
+    let session = manager
+        .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+        .await
+        .unwrap();
 
     let sleep = Duration::from_secs_f64(opt.interval);
     let payload = vec![0u8; opt.payload - 8];
@@ -300,20 +329,20 @@ async fn parallel(opt: Opt, whatami: WhatAmI) {
             reliability: Reliability::Reliable,
         };
         let congestion_control = CongestionControl::Block;
-        let key = ResKey::RName("/test/ping".to_string());
+        let key = "/test/ping";
         let info = None;
 
         let mut data: WBuf = WBuf::new(opt.payload, true);
         let count_bytes: [u8; 8] = count.to_le_bytes();
-        data.write_bytes(&count_bytes);
-        data.write_bytes(&payload);
+        data.write_all(&count_bytes).unwrap();
+        data.write_all(&payload).unwrap();
         let data: ZBuf = data.into();
         let routing_context = None;
         let reply_context = None;
         let attachment = None;
 
         let message = ZenohMessage::make_data(
-            key,
+            key.into(),
             data,
             channel,
             congestion_control,
@@ -339,9 +368,9 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
+    let whatami = WhatAmI::from_str(opt.mode.as_str()).unwrap();
 
     if opt.parallel {
         parallel(opt, whatami).await;

@@ -253,9 +253,11 @@ struct Opt {
     #[clap(short, long)]
     payload: usize,
 
+    /// name of the test
     #[clap(short, long)]
     name: String,
 
+    /// name of the scenario
     #[clap(short, long)]
     scenario: String,
 
@@ -264,7 +266,7 @@ struct Opt {
     interval: f64,
 
     /// spawn a task to receive or not
-    #[clap(long = "parallel")]
+    #[clap(long)]
     parallel: bool,
 }
 async fn parallel(opt: Opt, config: Config) {
