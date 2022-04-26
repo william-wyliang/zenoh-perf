@@ -13,17 +13,17 @@
 //
 use async_std::future;
 use async_std::sync::Arc;
+use clap::Parser;
 use std::any::Any;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use clap::Parser;
 use zenoh::net::link::Link;
 use zenoh::net::protocol::io::reader::{HasReader, Reader};
 use zenoh::net::protocol::io::SplitBuffer;
-use zenoh_protocol_core::{WhatAmI, EndPoint};
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
 use zenoh::net::transport::*;
 use zenoh_core::Result as ZResult;
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
 // Transport Handler for the peer
 struct MySH;
@@ -68,7 +68,9 @@ impl TransportPeerEventHandler for MyMH {
                 let mut now_bytes = [0u8; 16];
 
                 let mut data_reader = payload.reader();
-                if data_reader.read_exact(&mut count_bytes) && data_reader.read_exact(&mut now_bytes) {
+                if data_reader.read_exact(&mut count_bytes)
+                    && data_reader.read_exact(&mut now_bytes)
+                {
                     let count = u64::from_le_bytes(count_bytes);
                     let now_pub = u128::from_le_bytes(now_bytes);
 
@@ -119,7 +121,6 @@ async fn main() {
     let opt = Opt::parse();
 
     let whatami = WhatAmI::from_str(opt.mode.as_str()).unwrap();
-  
 
     let manager = TransportManager::builder()
         .whatami(whatami)
@@ -136,7 +137,7 @@ async fn main() {
         let _session = manager
             .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
             .await
-            .unwrap(); 
+            .unwrap();
     }
 
     // Stop forever
