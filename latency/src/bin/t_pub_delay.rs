@@ -13,19 +13,16 @@
 //
 use async_std::sync::Arc;
 use async_std::task;
+use clap::Parser;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use structopt::StructOpt;
-use zenoh::net::link::EndPoint;
-use zenoh::net::protocol::core::{
-    whatami, Channel, CongestionControl, Priority, Reliability, ResKey,
-};
 use zenoh::net::protocol::proto::ZenohMessage;
 use zenoh::net::transport::{
-    DummyTransportPeerEventHandler, TransportEventHandler, TransportManager,
-    TransportManagerConfig, TransportMulticast, TransportMulticastEventHandler, TransportPeer,
-    TransportPeerEventHandler, TransportUnicast,
+    DummyTransportPeerEventHandler, TransportEventHandler, TransportManager, TransportMulticast,
+    TransportMulticastEventHandler, TransportPeer, TransportPeerEventHandler, TransportUnicast,
 };
-use zenoh_util::core::ZResult;
+use zenoh_core::Result as ZResult;
+use zenoh_protocol_core::{Channel, CongestionControl, EndPoint, Priority, Reliability, WhatAmI};
 
 struct MySH {}
 
@@ -52,16 +49,23 @@ impl TransportEventHandler for MySH {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_ping")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_pub_delay")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
+    #[clap(short, long)]
+    endpoint: String,
+
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
-    #[structopt(short = "p", long = "payload")]
+
+    /// payload size ( >= 24 bytes)
+    #[clap(short, long)]
     payload: usize,
-    #[structopt(short = "i", long = "interval")]
+
+    /// interval of sending message (sec)
+    #[clap(short, long)]
     interval: f64,
 }
 
@@ -71,17 +75,20 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
+    let whatami = WhatAmI::from_str(opt.mode.as_str()).unwrap();
 
-    let config = TransportManagerConfig::builder()
+    let manager = TransportManager::builder()
         .whatami(whatami)
-        .build(Arc::new(MySH::new()));
-    let manager = TransportManager::new(config);
+        .build(Arc::new(MySH::new()))
+        .unwrap();
 
     // Connect to publisher
-    let session = manager.open_transport(opt.locator).await.unwrap();
+    let session = manager
+        .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+        .await
+        .unwrap();
 
     let mut count: u64 = 0;
     loop {
@@ -91,7 +98,7 @@ async fn main() {
             reliability: Reliability::Reliable,
         };
         let congestion_control = CongestionControl::Block;
-        let key = ResKey::RName("/test/ping".to_string());
+        let key = "/test/ping";
         let info = None;
         let routing_context = None;
         let reply_context = None;
@@ -99,6 +106,9 @@ async fn main() {
 
         // u64 (8 bytes) for seq num
         // u128 (16 bytes) for system time in nanoseconds
+        if opt.payload < 24 {
+            panic!("The payload size should >= 24");
+        }
         let mut payload = vec![0u8; opt.payload];
         let count_bytes: [u8; 8] = count.to_le_bytes();
         let now_bytes: [u8; 16] = SystemTime::now()
@@ -110,7 +120,7 @@ async fn main() {
         payload[8..24].copy_from_slice(&now_bytes);
 
         let message = ZenohMessage::make_data(
-            key,
+            key.into(),
             payload.into(),
             channel,
             congestion_control,

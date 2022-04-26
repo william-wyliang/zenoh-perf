@@ -13,14 +13,17 @@
 //
 use async_std::future;
 use async_std::sync::Arc;
+use clap::Parser;
 use std::any::Any;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use structopt::StructOpt;
-use zenoh::net::link::{EndPoint, Link};
-use zenoh::net::protocol::core::whatami;
+use zenoh::net::link::Link;
+use zenoh::net::protocol::io::reader::{HasReader, Reader};
+use zenoh::net::protocol::io::SplitBuffer;
 use zenoh::net::protocol::proto::{Data, ZenohBody, ZenohMessage};
 use zenoh::net::transport::*;
-use zenoh_util::core::ZResult;
+use zenoh_core::Result as ZResult;
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
 // Transport Handler for the peer
 struct MySH;
@@ -60,22 +63,27 @@ impl MyMH {
 impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         match message.body {
-            ZenohBody::Data(Data { mut payload, .. }) => {
+            ZenohBody::Data(Data { payload, .. }) => {
                 let mut count_bytes = [0u8; 8];
-                payload.read_bytes(&mut count_bytes);
-                let count = u64::from_le_bytes(count_bytes);
-
                 let mut now_bytes = [0u8; 16];
-                payload.read_bytes(&mut now_bytes);
-                let now_pub = u128::from_le_bytes(now_bytes);
 
-                let now_sub = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos();
-                let interval = Duration::from_nanos((now_sub - now_pub) as u64);
+                let mut data_reader = payload.reader();
+                if data_reader.read_exact(&mut count_bytes)
+                    && data_reader.read_exact(&mut now_bytes)
+                {
+                    let count = u64::from_le_bytes(count_bytes);
+                    let now_pub = u128::from_le_bytes(now_bytes);
 
-                println!("{} bytes: seq={} time={:?}", payload.len(), count, interval);
+                    let now_sub = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos();
+                    let interval = Duration::from_nanos((now_sub - now_pub) as u64);
+
+                    println!("{} bytes: seq={} time={:?}", payload.len(), count, interval);
+                } else {
+                    panic!("Fail to fill the buffer");
+                }
             }
             _ => panic!("Invalid message"),
         }
@@ -92,12 +100,15 @@ impl TransportPeerEventHandler for MyMH {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sub_thr")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_sub_delay")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: EndPoint,
-    #[structopt(short = "m", long = "mode")]
+    /// endpoint, e.g. --endpoint tcp/127.0.0.1:7447
+    #[clap(short, long)]
+    endpoint: String,
+
+    /// peer or client or router
+    #[clap(short, long)]
     mode: String,
 }
 
@@ -107,20 +118,26 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    let whatami = whatami::parse(opt.mode.as_str()).unwrap();
+    let whatami = WhatAmI::from_str(opt.mode.as_str()).unwrap();
 
-    let config = TransportManagerConfig::builder()
+    let manager = TransportManager::builder()
         .whatami(whatami)
-        .build(Arc::new(MySH::new()));
-    let manager = TransportManager::new(config);
+        .build(Arc::new(MySH::new()))
+        .unwrap();
 
     // Connect to the peer or listen
-    if whatami == whatami::PEER {
-        manager.add_listener(opt.locator).await.unwrap();
+    if whatami == WhatAmI::Peer {
+        manager
+            .add_listener(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+            .await
+            .unwrap();
     } else {
-        let _session = manager.open_transport(opt.locator).await.unwrap();
+        let _session = manager
+            .open_transport(EndPoint::from_str(opt.endpoint.as_str()).unwrap())
+            .await
+            .unwrap();
     }
 
     // Stop forever
