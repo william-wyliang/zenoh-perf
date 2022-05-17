@@ -118,7 +118,7 @@ impl TransportPeerEventHandler for MyMH {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "s_sub_thr")]
+#[clap(name = "t_sub_thr")]
 struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]

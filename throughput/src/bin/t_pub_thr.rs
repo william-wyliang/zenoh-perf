@@ -63,7 +63,7 @@ impl TransportEventHandler for MySH {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "s_pub_thr")]
+#[clap(name = "t_pub_thr")]
 struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]

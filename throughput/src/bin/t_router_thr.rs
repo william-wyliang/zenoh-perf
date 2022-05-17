@@ -94,7 +94,7 @@ impl TransportPeerEventHandler for MyMH {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "s_router_thr")]
+#[clap(name = "t_router_thr")]
 struct Opt {
     /// which endpoints to listen on. e.g. --listen tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
     #[clap(short, long, value_delimiter = ',')]
