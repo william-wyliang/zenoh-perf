@@ -11,24 +11,35 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::net::{SocketAddr, TcpListener, TcpStream};
-use async_std::prelude::*;
-use async_std::sync::Arc;
-use async_std::task;
-use std::convert::TryInto;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
-use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, PeerId};
-use zenoh::net::protocol::io::{WBuf, ZBuf, ZSlice};
-use zenoh::net::protocol::proto::{InitSyn, OpenSyn, TransportBody, TransportMessage};
+use async_std::{
+    net::{SocketAddr, TcpListener, TcpStream},
+    prelude::*,
+    sync::Arc,
+    task,
+};
+use clap::Parser;
+use std::{
+    convert::TryInto,
+    io::Write,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
+use zenoh::net::protocol::{
+    io::{WBuf, ZBuf, ZSlice},
+    proto::{InitSyn, OpenSyn, TransportBody, TransportMessage},
+};
+use zenoh::{
+    config::WhatAmI,
+    prelude::{MessageReader, MessageWriter, PeerId},
+};
+use zenoh_buffers::traits::reader::HasReader;
 
 macro_rules! zsend {
     ($msg:expr, $stream:expr) => {{
         // Create the buffer for serializing the message
         let mut wbuf = WBuf::new(32, false);
         // Reserve 16 bits to write the length
-        assert!(wbuf.write_bytes(&[0u8, 0u8]));
+        assert!(wbuf.write(&[0u8, 0u8]).unwrap() > 0);
         // Serialize the message
         assert!(wbuf.write_transport_message(&mut $msg));
         // Write the length on the first 16 bits
@@ -36,7 +47,7 @@ macro_rules! zsend {
         let bits = wbuf.get_first_slice_mut(..2);
         bits.copy_from_slice(&length.to_le_bytes());
         let mut bytes = vec![0u8; wbuf.len()];
-        wbuf.copy_into_slice(&mut bytes[..]);
+        wbuf.reader().copy_into_slice(&mut bytes[..]);
 
         // Send the message on the link
         let res = $stream.write_all(&bytes).await;
@@ -53,13 +64,13 @@ macro_rules! zrecv {
         // Decode the total amount of bytes that we are expected to read
         let to_read = u16::from_le_bytes(length) as usize;
         $stream.read_exact(&mut $buffer[0..to_read]).await.unwrap();
-        let mut zbuf = ZBuf::from(&$buffer[..]);
-        zbuf.read_transport_message().unwrap()
+        let zbuf = ZBuf::from($buffer.clone());
+        zbuf.reader().read_transport_message().unwrap()
     }};
 }
 
 async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
-    let my_whatami = whatami::ROUTER;
+    let my_whatami = WhatAmI::Router;
     let my_pid = PeerId::rand();
 
     // Create the reading buffer
@@ -145,16 +156,16 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sink_tcp")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_sink_tcp")]
 struct Opt {
-    #[structopt(short = "l", long = "listen")]
+    #[clap(short, long)]
     listen: SocketAddr,
 }
 
 #[async_std::main]
 async fn main() {
     env_logger::init();
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     let _ = run(opt.listen).await;
 }

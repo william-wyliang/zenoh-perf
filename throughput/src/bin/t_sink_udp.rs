@@ -11,15 +11,23 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::net::{SocketAddr, UdpSocket};
-use async_std::sync::Arc;
-use async_std::task;
+use async_std::{
+    net::{SocketAddr, UdpSocket},
+    sync::Arc,
+    task,
+};
+use clap::Parser;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use structopt::StructOpt;
-use zenoh::net::protocol::core::{whatami, PeerId};
-use zenoh::net::protocol::io::{WBuf, ZBuf, ZSlice};
-use zenoh::net::protocol::proto::{InitSyn, OpenSyn, TransportBody, TransportMessage};
+use zenoh::net::protocol::{
+    io::{WBuf, ZBuf, ZSlice},
+    proto::{InitSyn, OpenSyn, TransportBody, TransportMessage},
+};
+use zenoh::{
+    config::WhatAmI,
+    prelude::{MessageReader, MessageWriter, PeerId},
+};
+use zenoh_buffers::traits::reader::HasReader;
 
 macro_rules! zsend {
     ($msg:expr, $socket:expr, $addr:expr) => {{
@@ -28,7 +36,7 @@ macro_rules! zsend {
         // Serialize the message
         assert!(wbuf.write_transport_message(&mut $msg));
         let mut bytes = vec![0u8; wbuf.len()];
-        wbuf.copy_into_slice(&mut bytes[..]);
+        wbuf.reader().copy_into_slice(&mut bytes[..]);
         // Send the message on the link
         let res = $socket.send_to(&bytes, $addr).await;
         log::trace!("Sending {:?}: {:?}", $msg, res);
@@ -39,13 +47,13 @@ macro_rules! zsend {
 macro_rules! zrecv {
     ($socket:expr, $buffer:expr) => {{
         let (n, addr) = $socket.recv_from(&mut $buffer).await.unwrap();
-        let mut zbuf = ZBuf::from(&$buffer[..n]);
-        (zbuf.read_transport_message().unwrap(), addr)
+        let zbuf = ZBuf::from($buffer[..n].to_vec());
+        (zbuf.reader().read_transport_message().unwrap(), addr)
     }};
 }
 
 async fn handle_client(socket: Arc<UdpSocket>) -> Result<(), Box<dyn std::error::Error>> {
-    let my_whatami = whatami::ROUTER;
+    let my_whatami = WhatAmI::Router;
     let my_pid = PeerId::rand();
 
     // Create the reading buffer
@@ -129,16 +137,16 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
     handle_client(Arc::new(socket)).await
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "s_sink_udp")]
+#[derive(Debug, Parser)]
+#[clap(name = "t_sink_udp")]
 struct Opt {
-    #[structopt(short = "l", long = "listen")]
+    #[clap(short, long)]
     listen: SocketAddr,
 }
 
 #[async_std::main]
 async fn main() {
     env_logger::init();
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     let _ = run(opt.listen).await;
 }

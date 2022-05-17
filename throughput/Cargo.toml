@@ -33,15 +33,16 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 async-std = { version = "=1.11.0", features = ["unstable"] }
-async-trait = "0.1.52"
-clap = { version = "3.1.5", features = ["derive"] }
+async-trait = "0.1.53"
+clap = { version = "3.1.12", features = ["derive"] }
 env_logger = "0.9.0"
-log = "0.4.14"
+log = "0.4.16"
 rand = "0.8.5"
-slab = "0.4.5"
+slab = "0.4.6"
 json5 = "0.4.1"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
-zenoh-core = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
-zenoh-cfg-properties = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
-zenoh-protocol-core = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
+zenoh = { version = "0.6.0-dev", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = "0.6.0-dev"
+zenoh-core = "0.6.0-dev"
+zenoh-cfg-properties = "0.6.0-dev"
+zenoh-protocol-core = "0.6.0-dev"
+zenoh-buffers = "0.6.0-dev"
