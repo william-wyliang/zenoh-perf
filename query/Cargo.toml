@@ -32,47 +32,11 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 async-std = { version = "=1.11.0", features = ["unstable"] }
-async-trait = "0.1.42"
+async-trait = "0.1.53"
 env_logger = "0.9.0"
 log = "0.4.14"
 rand = "0.8.3"
 slab = "0.4.2"
 structopt = "0.3.21"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", default-features = false, features = ["transport_tcp", "transport_udp"] }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
-
-[[bin]]
-name = "t_eval"
-
-[[bin]]
-name = "t_query"
-
-[[bin]]
-name = "t_query_thr"
-
-[[bin]]
-name = "r_query"
-
-[[bin]]
-name = "r_query_thr"
-
-[[bin]]
-name = "r_eval"
-
-[[bin]]
-name = "zn_query"
-
-[[bin]]
-name = "zn_query_thr"
-
-[[bin]]
-name = "zn_eval"
-
-[[bin]]
-name = "z_query"
-
-[[bin]]
-name = "z_query_thr"
-
-[[bin]]
-name = "z_eval"
+zenoh = { version="0.6.0-dev", default-features = false, features = ["transport_tcp", "transport_udp"] }
+zenoh-util = "0.6.0-dev"
