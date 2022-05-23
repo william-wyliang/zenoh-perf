@@ -33,3 +33,4 @@ zenoh-util           = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
 zenoh-core           = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
 zenoh-cfg-properties = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
 zenoh-protocol-core  = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
+zenoh-buffers        = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
