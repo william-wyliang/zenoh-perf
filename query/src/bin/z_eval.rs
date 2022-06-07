@@ -12,20 +12,25 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::stream::StreamExt;
-use std::convert::TryFrom;
-use structopt::StructOpt;
-use zenoh::*;
+use clap::Parser;
+use zenoh::{config::Config, prelude::Sample, queryable::EVAL};
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_pong")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_eval")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "p", long = "payload")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long)]
+    endpoint: Vec<EndPoint>,
+
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    #[clap(short, long)]
     payload: usize,
 }
+
+const KEY_EXPR: &str = "/test/query";
 
 #[async_std::main]
 async fn main() {
@@ -33,27 +38,28 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
-
-    let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
-
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    match opt.mode.as_str() {
-        "peer" => config.insert("listener".to_string(), opt.locator),
-        "client" => config.insert("peer".to_string(), opt.locator),
-        _ => panic!("Unsupported mode: {}", opt.mode),
+    let Opt {
+        endpoint,
+        mode,
+        payload,
+    } = Opt::parse();
+    let config = {
+        let mut config: Config = Config::default();
+        config.set_mode(Some(mode)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        match mode {
+            WhatAmI::Peer => config.listen.endpoints.extend(endpoint),
+            WhatAmI::Client => config.connect.endpoints.extend(endpoint),
+            _ => panic!("Unsupported mode: {}", mode),
+        }
+        config
     };
 
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
-    let path = &Path::try_from("/test/query").unwrap();
-    let mut get_stream = workspace.register_eval(&path.into()).await.unwrap();
-    while let Some(get_request) = get_stream.next().await {
-        let data = vec![0u8; opt.payload];
-        get_request.reply(path.clone(), data.into());
+    let session = zenoh::open(config).await.unwrap();
+    let mut queryable = session.queryable(KEY_EXPR).kind(EVAL).await.unwrap();
+    while let Some(query) = queryable.next().await {
+        query
+            .reply_async(Sample::new(KEY_EXPR, vec![0u8; payload]))
+            .await;
     }
-
-    get_stream.close().await.unwrap();
-    zenoh.close().await.unwrap();
 }

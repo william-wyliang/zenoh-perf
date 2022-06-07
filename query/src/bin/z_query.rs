@@ -12,21 +12,27 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use async_std::stream::StreamExt;
-use std::convert::TryInto;
+use clap::Parser;
 use std::time::Instant;
-use structopt::StructOpt;
-use zenoh::*;
+use zenoh::config::Config;
+use zenoh_buffers::SplitBuffer;
+use zenoh_protocol_core::{EndPoint, WhatAmI};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "z_query")]
+#[derive(Debug, Parser)]
+#[clap(name = "z_query")]
 struct Opt {
-    #[structopt(short = "l", long = "locator")]
-    locator: String,
-    #[structopt(short = "m", long = "mode")]
-    mode: String,
-    #[structopt(short = "n", long = "name")]
+    /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
+    #[clap(short, long)]
+    endpoint: Vec<EndPoint>,
+
+    /// peer, router, or client
+    #[clap(short, long)]
+    mode: WhatAmI,
+
+    #[clap(short, long)]
     name: String,
-    #[structopt(short = "s", long = "scenario")]
+
+    #[clap(short, long)]
     scenario: String,
 }
 
@@ -36,51 +42,37 @@ async fn main() {
     env_logger::init();
 
     // Parse the args
-    let opt = Opt::from_args();
+    let Opt {
+        endpoint,
+        mode,
+        name,
+        scenario,
+    } = Opt::parse();
+    let config = {
+        let mut config: Config = Config::default();
+        config.set_mode(Some(mode)).unwrap();
+        config.set_add_timestamp(Some(false)).unwrap();
+        config.scouting.multicast.set_enabled(Some(false)).unwrap();
+        config.connect.endpoints.extend(endpoint);
+        config
+    };
 
-    let mut config = Properties::default();
-    config.insert("mode".to_string(), opt.mode.clone());
-
-    config.insert("multicast_scouting".to_string(), "false".to_string());
-    config.insert("peer".to_string(), opt.locator);
-
-    let zenoh = Zenoh::new(config.into()).await.unwrap();
-    let workspace = zenoh.workspace(None).await.unwrap();
+    let session = zenoh::open(config).await.unwrap();
 
     let mut count: u64 = 0;
     loop {
-        let selector = "/test/query".to_string();
         let now = Instant::now();
-        let mut data_stream = workspace.get(&selector.try_into().unwrap()).await.unwrap();
+        let mut data_stream = session.get("/test/query").await.unwrap();
 
         let mut payload: usize = 0;
-        while let Some(data) = data_stream.next().await {
-            let len = match data.value {
-                Value::Raw(_, payload) => payload.len(),
-                Value::Custom {
-                    encoding_descr: _,
-                    data: payload,
-                } => payload.len(),
-                Value::StringUtf8(payload) => payload.as_bytes().len(),
-                Value::Properties(ps) => {
-                    let mut len: usize = 0;
-                    for p in ps.iter() {
-                        let (a, b) = (p.0, p.1);
-                        len += a.as_bytes().len() + b.as_bytes().len();
-                    }
-                    len
-                }
-                Value::Json(payload) => payload.as_bytes().len(),
-                Value::Integer(_) => std::mem::size_of::<i64>(),
-                Value::Float(_) => std::mem::size_of::<f64>(),
-            };
-            payload += len;
+        while let Some(reply) = data_stream.next().await {
+            payload += reply.sample.value.payload.len();
         }
 
         println!(
             "zenoh,{},query.latency,{},{},{},{}",
-            opt.scenario,
-            opt.name,
+            scenario,
+            name,
             payload,
             count,
             now.elapsed().as_micros()
