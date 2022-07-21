@@ -76,7 +76,9 @@ impl MyMH {
 
 impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
-        for (i, e) in self.table.read().unwrap().iter() {
+        let read_table = self.table.read().unwrap();
+        let read_table = read_table.iter();
+        for (i, e) in read_table {
             if i != self.index {
                 let _ = e.handle_message(message.clone());
             }

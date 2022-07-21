@@ -130,7 +130,7 @@ async fn main() {
             attachment,
         );
 
-        let _ = session.handle_message(message.clone()).unwrap();
+        session.handle_message(message.clone()).unwrap();
 
         task::sleep(Duration::from_secs_f64(opt.interval)).await;
         count += 1;

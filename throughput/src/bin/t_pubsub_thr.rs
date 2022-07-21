@@ -233,7 +233,7 @@ async fn main() {
                 reply_context.clone(),
                 attachment.clone(),
             );
-            let _ = t.handle_message(message).unwrap();
+            t.handle_message(message).unwrap();
         }
         count.fetch_add(1, Ordering::Relaxed);
     }
