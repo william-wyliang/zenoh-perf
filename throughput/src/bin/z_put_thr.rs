@@ -25,7 +25,7 @@ use zenoh_protocol_core::{CongestionControl, EndPoint, WhatAmI};
 #[clap(name = "z_put_thr")]
 struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
-    #[clap(short, long, value_delimiter = ',')]
+    #[clap(short, long, required(true), value_delimiter = ',')]
     endpoint: Vec<EndPoint>,
 
     /// peer, router, or client

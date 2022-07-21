@@ -27,7 +27,7 @@ use zenoh_protocol_core::{CongestionControl, WhatAmI};
 #[clap(name = "z_ping")]
 struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
-    #[clap(short, long)]
+    #[clap(short, long, required(true))]
     endpoint: Option<String>,
 
     /// peer or client

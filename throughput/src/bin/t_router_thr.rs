@@ -118,6 +118,10 @@ async fn main() {
         config,
     } = Opt::parse();
 
+    if listen.is_empty() && connect.is_empty() {
+        panic!("Either --listen or --connect needs to be specified, see --help for more details");
+    }
+
     // Create the session manager
     let builder = match config {
         Some(path) => TransportManager::builder()
