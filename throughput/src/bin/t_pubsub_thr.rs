@@ -174,6 +174,10 @@ async fn main() {
     let handler = Arc::new(MySH::new(scenario, name, payload, count));
     let manager = builder.build(handler).unwrap();
 
+    if listen.is_empty() && connect.is_empty() {
+        panic!("Either --listen or --connect needs to be specified, see --help for more details");
+    }
+
     // Connect to publisher
     for e in listen {
         let _ = manager.add_listener(e.clone()).await.unwrap();
@@ -229,7 +233,7 @@ async fn main() {
                 reply_context.clone(),
                 attachment.clone(),
             );
-            let _ = t.handle_message(message).unwrap();
+            t.handle_message(message).unwrap();
         }
         count.fetch_add(1, Ordering::Relaxed);
     }

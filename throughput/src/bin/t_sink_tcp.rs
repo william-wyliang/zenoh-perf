@@ -93,7 +93,7 @@ async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::
                 attachment,
             );
             // Send the InitAck
-            let _ = zsend!(message, stream).unwrap();
+            zsend!(message, stream).unwrap();
         }
         _ => panic!(),
     }
@@ -107,7 +107,7 @@ async fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::
             let attachment = None;
             let mut message = TransportMessage::make_open_ack(*lease, *initial_sn, attachment);
             // Send the OpenAck
-            let _ = zsend!(message, stream).unwrap();
+            zsend!(message, stream).unwrap();
         }
         _ => panic!(),
     }

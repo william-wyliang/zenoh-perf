@@ -76,7 +76,9 @@ impl MyMH {
 
 impl TransportPeerEventHandler for MyMH {
     fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
-        for (i, e) in self.table.read().unwrap().iter() {
+        let read_table = self.table.read().unwrap();
+        let read_table = read_table.iter();
+        for (i, e) in read_table {
             if i != self.index {
                 let _ = e.handle_message(message.clone());
             }
@@ -117,6 +119,10 @@ async fn main() {
         connect,
         config,
     } = Opt::parse();
+
+    if listen.is_empty() && connect.is_empty() {
+        panic!("Either --listen or --connect needs to be specified, see --help for more details");
+    }
 
     // Create the session manager
     let builder = match config {

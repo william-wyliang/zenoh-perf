@@ -82,10 +82,8 @@ async fn main() {
         if opt.declare_publication {
             session.declare_publication(key_expr_pong).await.unwrap();
         }
-    } else {
-        if opt.declare_publication {
-            session.declare_publication(KEY_EXPR_PONG).await.unwrap();
-        }
+    } else if opt.declare_publication {
+        session.declare_publication(KEY_EXPR_PONG).await.unwrap();
     }
 
     while let Some(sample) = sub.next().await {

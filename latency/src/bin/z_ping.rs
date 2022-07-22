@@ -27,7 +27,7 @@ use zenoh_protocol_core::{CongestionControl, WhatAmI};
 #[clap(name = "z_ping")]
 struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
-    #[clap(short, long)]
+    #[clap(short, long, required(true))]
     endpoint: Option<String>,
 
     /// peer or client
@@ -90,10 +90,8 @@ async fn parallel(opt: Opt, config: Config) {
         if opt.declare_publication {
             session.declare_publication(key_expr_ping).await.unwrap();
         }
-    } else {
-        if opt.declare_publication {
-            session.declare_publication(KEY_EXPR_PING).await.unwrap();
-        }
+    } else if opt.declare_publication {
+        session.declare_publication(KEY_EXPR_PING).await.unwrap();
     }
     task::spawn(async move {
         while let Some(sample) = sub.next().await {
@@ -163,10 +161,8 @@ async fn single(opt: Opt, config: Config) {
         if opt.declare_publication {
             session.declare_publication(key_expr_ping).await.unwrap();
         }
-    } else {
-        if opt.declare_publication {
-            session.declare_publication("/test/ping").await.unwrap();
-        }
+    } else if opt.declare_publication {
+        session.declare_publication("/test/ping").await.unwrap();
     }
     let mut count: u64 = 0;
     loop {

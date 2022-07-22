@@ -66,7 +66,7 @@ impl TransportEventHandler for MySH {
 #[clap(name = "t_pub_thr")]
 struct Opt {
     /// endpoint(s), e.g. --endpoint tcp/127.0.0.1:7447,tcp/127.0.0.1:7448
-    #[clap(short, long, value_delimiter = ',')]
+    #[clap(short, long, required(true), value_delimiter = ',')]
     endpoint: Vec<EndPoint>,
 
     /// peer, router, or client
@@ -157,7 +157,7 @@ async fn main() {
                 reply_context.clone(),
                 attachment.clone(),
             );
-            let _ = t.handle_message(message).unwrap();
+            t.handle_message(message).unwrap();
         }
         count.fetch_add(1, Ordering::Relaxed);
     }
